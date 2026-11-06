@@ -120,6 +120,8 @@ await friends[2].evaluate(() => __ll.game.ui.hooks.leaveCove());
 check('when one leaves, everyone hears', await until(host, (n) => __ll.game.net.players.size === n, FRIENDS - 1) && await until(friends[0], (n) => __ll.game.net.players.size === n, FRIENDS - 1));
 await ninth.evaluate(() => document.querySelector('#jGo').click());
 check('the waiting person can now get in', await until(host, (n) => __ll.game.net.players.size === n, FRIENDS, 40000));
+// The host hears of them first; their welcome is still on its way over the slower route.
+await until(ninth, () => __ll.game.net.players.size > 0, null, 15000);
 const freed = await ninth.evaluate(() => __ll.game.net.slot);
 check('and takes the free boat place', freed === slots[2], `${freed} (was ${slots[2]})`);
 

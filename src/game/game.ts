@@ -1409,7 +1409,7 @@ export class Game {
       const head = this.fisher.root.getWorldPosition(new THREE.Vector3());
       head.y += this.fisher.eyeHeight - (this.inBoat ? 0.42 : 0.02);
       const side = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
-      const pos = head.clone().addScaledVector(side, 0.42).addScaledVector(dir, -1.55);
+      const pos = head.clone().addScaledVector(side, 0.68).addScaledVector(dir, -2.4);
       pos.y += 0.18 + this.recoil * 0.05;
       pos.y = Math.max(pos.y, Math.max(groundY(pos.x, pos.z), 0.25) + 0.3);
       this.camera.position.lerp(pos, 1 - Math.exp(-dt * 16));
