@@ -133,6 +133,25 @@ const tag = await host.evaluate(() => {
 });
 check('name tag floats over the friend', tag.o > 0.3 && tag.x > 0 && tag.y > 0, JSON.stringify(tag));
 
+// A jump is seen.
+const peak = friend.evaluate(async () => {
+  const fig = __ll.game.remotes.get('host').fisher.root;
+  const base = fig.position.y;
+  let top = base;
+  let sawAir = false;
+  const end = performance.now() + 1800;
+  while (performance.now() < end) {
+    top = Math.max(top, fig.position.y);
+    sawAir ||= __ll.game.net.players.get('host').state.air;
+    await new Promise((r) => requestAnimationFrame(r));
+  }
+  return { up: top - base, sawAir };
+});
+await wait(200);
+await host.keyboard.press('Space');
+const seen = await peak;
+check('friend sees the host jump', seen.sawAir && seen.up > 0.35, `${seen.up.toFixed(2)} m up`);
+
 // Clock, both ways.
 await host.evaluate(() => __ll.setHour(9.5));
 check('host moves the sun for everyone', await until(friend, () => Math.abs(__ll.game.hour - 9.5) < 0.1, null, 5000));

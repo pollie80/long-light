@@ -39,6 +39,12 @@ await wait(1200);
 await button(CROSS);
 await wait(5200);
 check('Cross starts the game', (await s()).mode === 'walk');
+await wait(600);
+await page.evaluate(() => { __pad.buttons[0].pressed = true; });
+await wait(160);
+check('Cross jumps on land', await page.evaluate(() => __ll.game.airborne));
+await page.evaluate(() => { __pad.buttons[0].pressed = false; });
+await wait(1000);
 
 const a0 = await s();
 await axes([0, -1, 0, 0]);

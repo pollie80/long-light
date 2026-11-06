@@ -45,6 +45,8 @@ describe('what arrives from the network', () => {
     expect(s.bOut).toBe(1);
     expect(s.bLift).toBe(0);
     expect(s.ib).toBe(false);
+    expect(s.air).toBe(false);
+    expect(cleanState({ air: true })!.air).toBe(true);
     expect(cleanState(null)).toBeNull();
     expect(cleanState('x')).toBeNull();
   });

@@ -30,6 +30,10 @@ export interface MenuHooks {
   getSensitivity(): number;
   setMuteAway(v: boolean): void;
   getMuteAway(): boolean;
+  setWalkSpeed(v: number): void;
+  getWalkSpeed(): number;
+  setRowSpeed(v: number): void;
+  getRowSpeed(): number;
   wardrobe(): void;
   friends(): void;
   play(): void;
@@ -170,8 +174,10 @@ export class UI {
           <div class="set">${ICON.music}<label for="mMusic">Music</label><input id="mMusic" type="range" min="0" max="100" step="1"><b id="mMusicV"></b></div>
           <div class="set">${ICON.speaker}<label for="mSfx">Sounds</label><input id="mSfx" type="range" min="0" max="100" step="1"><b id="mSfxV"></b></div>
           <div class="set switch" id="mAway" role="switch" tabindex="0">${ICON.muted}<label>Mute when in background</label><span class="sw"><i></i></span></div>
-          <h4>Mouse</h4>
-          <div class="set">${ICON.mouse}<label for="mSens">Sensitivity</label><input id="mSens" type="range" min="10" max="300" step="5"><b id="mSensV"></b></div>
+          <h4>Moving</h4>
+          <div class="set">${ICON.boot}<label for="mWalk">Walking speed</label><input id="mWalk" type="range" min="50" max="300" step="5"><b id="mWalkV"></b></div>
+          <div class="set">${ICON.boat}<label for="mRow">Rowing speed</label><input id="mRow" type="range" min="50" max="300" step="5"><b id="mRowV"></b></div>
+          <div class="set">${ICON.mouse}<label for="mSens">Mouse sensitivity</label><input id="mSens" type="range" min="10" max="300" step="5"><b id="mSensV"></b></div>
         </div>
         <div id="mKeys" class="gone">
           <h4>Moving</h4>
@@ -179,9 +185,10 @@ export class UI {
           <div class="keyRow"><span><kbd>Mouse</kbd></span>Look around</div>
           <div class="keyRow"><span><kbd>Q</kbd></span>Stroll the path by itself</div>
           <div class="keyRow"><span><kbd>Shift</kbd></span>Hurry a little</div>
+          <div class="keyRow"><span><kbd>Space</kbd> tap</span>Jump</div>
           <h4>Doing</h4>
           <div class="keyRow"><span><kbd>E</kbd></span>Use what is nearby</div>
-          <div class="keyRow"><span><kbd>Space</kbd> or <kbd>Click</kbd></span>Cast, hook, reel</div>
+          <div class="keyRow"><span><kbd>Space</kbd> hold or <kbd>Click</kbd></span>Cast, hook, reel</div>
           <div class="keyRow"><span><kbd>B</kbd></span>Have a beer</div>
           <h4>Other</h4>
           <div class="keyRow"><span><kbd>J</kbd></span>Journal</div>
@@ -255,6 +262,8 @@ export class UI {
       this.refreshMenu();
     };
     el<HTMLInputElement>('mSens').oninput = (e) => h.setSensitivity(parseFloat((e.target as HTMLInputElement).value) / 100);
+    el<HTMLInputElement>('mWalk').oninput = (e) => h.setWalkSpeed(parseFloat((e.target as HTMLInputElement).value) / 100);
+    el<HTMLInputElement>('mRow').oninput = (e) => h.setRowSpeed(parseFloat((e.target as HTMLInputElement).value) / 100);
     el('mQuit').onclick = () => h.quit();
     el('mSave').onclick = () => h.savePainting();
     el('mFull').onclick = () => {
@@ -461,6 +470,12 @@ export class UI {
     const sens = h.getSensitivity();
     el<HTMLInputElement>('mSens').value = String(Math.round(sens * 100));
     el('mSensV').textContent = `${Math.round(sens * 100)}%`;
+    const walk = h.getWalkSpeed();
+    el<HTMLInputElement>('mWalk').value = String(Math.round(walk * 100));
+    el('mWalkV').textContent = `${Math.round(walk * 100)}%`;
+    const row = h.getRowSpeed();
+    el<HTMLInputElement>('mRow').value = String(Math.round(row * 100));
+    el('mRowV').textContent = `${Math.round(row * 100)}%`;
     el('mAway').classList.toggle('on', h.getMuteAway());
     el('mAway').setAttribute('aria-checked', String(h.getMuteAway()));
   }

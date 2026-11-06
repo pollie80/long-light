@@ -13,6 +13,8 @@ export const ICON = {
   music: svg('<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>'),
   speaker: svg('<path d="M4 9.5v5h3.5L12.5 19V5L7.5 9.5z"/><path d="M16 9c1 .9 1.5 1.9 1.5 3s-.5 2.1-1.5 3"/><path d="M18.5 6.5c1.7 1.5 2.5 3.3 2.5 5.5s-.8 4-2.5 5.5"/>'),
   muted: svg('<path d="M4 9.5v5h3.5L12.5 19V5L7.5 9.5z"/><path d="M16.5 9.5l4.5 5M21 9.5l-4.5 5"/>'),
+  boot: svg('<path d="M8 3.5h6.5v8l4.7 2.8c1.2.7 1.8 1.7 1.8 2.9v1.3H8z"/><path d="M8 16.5h13"/>'),
+  boat: svg('<path d="M2.5 12.5h19l-3 6.5h-13z"/><path d="M8.5 5.5l7 13.5"/>'),
   mouse: svg('<rect x="6.5" y="3" width="11" height="18" rx="5.5"/><path d="M12 7v3.5"/>'),
   camera: svg('<path d="M3.5 8.5h3.7L9 5.5h6l1.8 3h3.7v10.5h-17z"/><circle cx="12" cy="13.5" r="3.4"/>'),
   expand: svg('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>'),

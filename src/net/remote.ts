@@ -102,7 +102,8 @@ export class RemotePlayer {
       this.fisher.root.rotation.set(0, this.fy, 0);
     } else {
       this.x = damp(this.x, s.x, 11, dt);
-      this.y = damp(this.y, s.y, 11, dt);
+      // Quicker than the rest, or a jump loses its height to the smoothing.
+      this.y = damp(this.y, s.y, 20, dt);
       this.z = damp(this.z, s.z, 11, dt);
       this.yaw += wrap(s.yaw - this.yaw) * (1 - Math.exp(-dt * 11));
       this.fisher.root.position.set(this.x, this.y, this.z);
@@ -128,6 +129,7 @@ export class RemotePlayer {
       reelSpin: s.spin,
       beerOut: s.bOut,
       beerLift: s.bLift,
+      air: s.air,
     };
     this.fisher.update(dt, t, pose);
 

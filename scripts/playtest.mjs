@@ -47,6 +47,69 @@ const p2 = await s();
 check('Q strolls by itself', Math.hypot(p2.px - p1.px, p2.pz - p1.pz) > 2.5, `moved ${Math.hypot(p2.px - p1.px, p2.pz - p1.pz).toFixed(1)} m`);
 await page.keyboard.press('KeyQ');
 
+// Jumping, and where it gives way to casting.
+const jumpState = () => page.evaluate(() => ({ y: __ll.game.fisher.root.position.y, air: __ll.game.airborne, fish: __ll.game.fishing.state }));
+const j0 = await jumpState();
+await page.keyboard.press('Space');
+await wait(240);
+const j1 = await jumpState();
+check('Space jumps on land', j1.air && j1.y > j0.y + 0.2, `up ${(j1.y - j0.y).toFixed(2)} m`);
+await wait(1100);
+const j2 = await jumpState();
+const groundNow = await page.evaluate(() => __ll.game.py);
+check('and comes back down', !j2.air && Math.abs(j2.y - groundNow) < 0.02, `${j2.air} ${j2.y.toFixed(3)} on ground ${groundNow.toFixed(3)}, started ${j0.y.toFixed(3)}`);
+await page.evaluate(() => __ll.place(-20, 0, 1.57));
+await wait(700);
+await page.keyboard.press('Space');
+await wait(380);
+const j3 = await jumpState();
+check('a tap jumps from the deck too', j3.air && j3.fish === 'idle', JSON.stringify(j3));
+await wait(1100);
+await page.keyboard.down('Space');
+await wait(700);
+const j4 = await jumpState();
+check('a hold on the deck casts instead', !j4.air && j4.fish === 'charge', JSON.stringify(j4));
+await page.keyboard.up('Space');
+await wait(300);
+await page.keyboard.press('KeyR');
+await page.evaluate(() => __ll.game.fishing.reelIn());
+await wait(300);
+await page.evaluate(() => { __ll.place(-8, 0, 1.57); __ll.game.yaw = 1.57; });
+await wait(400);
+await page.keyboard.down('KeyW');
+await wait(700);
+await page.keyboard.press('Space');
+await wait(120);
+const j5 = await jumpState();
+await page.keyboard.up('KeyW');
+check('walking on the deck, Space jumps at once', j5.air && j5.fish === 'idle', JSON.stringify(j5));
+await wait(1100);
+
+// Speed settings, through the real menu sliders.
+const slider = (id, v) => page.evaluate(([i, val]) => { const e = document.getElementById(i); e.value = val; e.dispatchEvent(new Event('input')); }, [id, v]);
+const walkRun = async () => {
+  await page.evaluate(() => { __ll.place(0, 0, 1.57); __ll.game.yaw = 1.57; });
+  await wait(300);
+  const a = await s();
+  await page.keyboard.down('KeyW');
+  await wait(2000);
+  const b = await s();
+  await page.keyboard.up('KeyW');
+  await wait(500);
+  return Math.hypot(b.px - a.px, b.pz - a.pz);
+};
+const w100 = await walkRun();
+await page.evaluate(() => __ll.game.openMenu());
+await wait(300);
+await slider('mWalk', 200);
+check('walking speed shows in the menu', (await page.locator('#mWalkV').textContent()) === '200%');
+await page.evaluate(() => __ll.game.closeMenus());
+await wait(300);
+const w200 = await walkRun();
+check('walking speed setting works', w200 / w100 > 1.6 && w200 / w100 < 2.4, `${w100.toFixed(1)} m then ${w200.toFixed(1)} m`);
+check('speed setting is saved', await page.evaluate(() => JSON.parse(localStorage.getItem('longlight.save.v1')).walkSpeed === 2));
+await page.evaluate(() => __ll.game.ui.hooks.setWalkSpeed(1));
+
 // Bench.
 await page.evaluate(() => { const b = __ll.game.props.bench; __ll.place(b.x + 1.1, b.z + 0.8, 1.3); });
 await wait(600);
@@ -101,6 +164,23 @@ await page.keyboard.up('KeyW');
 const b1 = await page.evaluate(() => ({ x: __ll.game.boat.x, z: __ll.game.boat.z, h: __ll.game.boat.heading, sp: __ll.game.boat.speed }));
 check('W rows the boat', Math.hypot(b1.x - b0.x, b1.z - b0.z) > 4, `moved ${Math.hypot(b1.x - b0.x, b1.z - b0.z).toFixed(1)} m`);
 check('A turns the boat', Math.abs(b1.h - b0.h) > 0.05, `turned ${(b1.h - b0.h).toFixed(2)} rad`);
+
+// Rowing speed.
+const rowRun = async () => {
+  await page.evaluate(() => __ll.boatAt(-110, 30, 1.4));
+  await wait(300);
+  const a = await page.evaluate(() => [__ll.game.boat.x, __ll.game.boat.z]);
+  await page.keyboard.down('KeyW');
+  await wait(4700);
+  await page.keyboard.up('KeyW');
+  const b = await page.evaluate(() => [__ll.game.boat.x, __ll.game.boat.z]);
+  return Math.hypot(b[0] - a[0], b[1] - a[1]);
+};
+const r100 = await rowRun();
+await page.evaluate(() => __ll.game.ui.hooks.setRowSpeed(2));
+const r200 = await rowRun();
+await page.evaluate(() => __ll.game.ui.hooks.setRowSpeed(1));
+check('rowing speed setting works', r200 / r100 > 1.4, `${r100.toFixed(1)} m then ${r200.toFixed(1)} m`);
 
 // Row out, then fish: the full loop with real input.
 await page.evaluate(() => __ll.boatAt(-110, 30, 1.4));

@@ -5,13 +5,15 @@ import { CharacterLook, cleanLook } from '../actors/look';
 import type { FishState } from '../game/fishing';
 
 /** Bumped whenever the messages change, so an old copy gets a clear message instead of odd behaviour. */
-export const PROTOCOL = 1;
+export const PROTOCOL = 2;
 export const MAX_PLAYERS = 8;
 export const PEER_PREFIX = 'long-light-cove-';
 export const HOSTED_URL = 'https://pollie80.github.io/long-light/';
 
 export interface NetState {
   x: number; y: number; z: number; yaw: number;
+  /** Off the ground, jumping. */
+  air: boolean;
   mode: PoseMode;
   sp: number;
   /** In the boat, with this seat turn. */
@@ -68,6 +70,7 @@ export function cleanState(v: unknown): NetState | null {
   const o = v as Record<string, unknown>;
   return {
     x: num(o.x, 5000), y: num(o.y, 500), z: num(o.z, 5000), yaw: num(o.yaw, 100),
+    air: o.air === true,
     mode: POSES.includes(o.mode as PoseMode) ? (o.mode as PoseMode) : 'stand',
     sp: num(o.sp, 20),
     ib: o.ib === true, fy: num(o.fy, 100),

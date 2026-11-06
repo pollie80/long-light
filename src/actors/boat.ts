@@ -71,6 +71,8 @@ export class Boat {
   oarOut = 0;
   rowing = false;
   moored = true;
+  /** The rowing speed setting: 1 is the natural pace. */
+  power = 1;
   home = { x: BOAT_MOOR.x, z: BOAT_MOOR.z };
   private oarGroups: THREE.Group[] = [];
   private bladeWorld = [new THREE.Vector3(), new THREE.Vector3()];
@@ -241,12 +243,13 @@ export class Boat {
     if (active) {
       const leftP = clamp(forwardInput + turnInput * 0.55, -1, 1);
       const rightP = clamp(forwardInput - turnInput * 0.55, -1, 1);
-      thrust = ((leftP + rightP) * 0.5 * pull) * 1.9;
+      thrust = ((leftP + rightP) * 0.5 * pull) * 1.9 * this.power;
       yaw = (leftP - rightP) * 0.5 * pull * 0.62;
       if (Math.abs(forwardInput) < 0.05) yaw *= 1.2;
     }
     this.speed += thrust * dt;
-    this.speed *= Math.exp(-dt * (0.42 + Math.abs(this.speed) * 0.1));
+    // Thrust up and water drag down by the same factor scales the top speed by exactly that factor.
+    this.speed *= Math.exp(-dt * (0.42 + (Math.abs(this.speed) * 0.1) / this.power));
     this.turnRate += -yaw * dt * 1.9;
     this.turnRate *= Math.exp(-dt * 1.5);
     this.heading += this.turnRate * dt * (0.55 + Math.min(1, Math.abs(this.speed)) * 0.45);

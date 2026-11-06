@@ -26,6 +26,7 @@ export interface PoseInput {
   twist?: number; // torso turn, used to face the cast while seated
   beerOut?: number; // 0 in the basket, 1 in the left hand
   beerLift?: number; // 0 held at the chest, 1 at the mouth
+  air?: boolean; // off the ground, jumping
 }
 
 const Y_NEG = new THREE.Vector3(0, -1, 0);
@@ -54,7 +55,8 @@ export class Fisher {
   private rodMesh: THREE.Mesh;
   private walkPhase = 0;
   private breath = 0;
-  private a = { lean: 0, thigh: 0, shin: 0, seat: 0, dangle: 0 };
+  private a = { lean: 0, thigh: 0, shin: 0, seat: 0, dangle: 0, air: 0, land: 0 };
+  private wasInAir = false;
   private scarfVel = 0;
   private scarfAng = 0;
   private prevPos = new THREE.Vector3();
@@ -292,10 +294,19 @@ export class Fisher {
     const speed = sitting ? 0 : pose.speed;
     const walkAmt = Math.min(1, speed / 1.6);
 
-    this.walkPhase += dt * (2.5 + speed * 2.45);
+    // Past a run the legs stop speeding up, or a fast setting turns them into a blur.
+    this.walkPhase += dt * (2.5 + Math.min(speed, 7) * 2.45);
     const ph = this.walkPhase;
     const s = Math.sin(ph);
-    if (!sitting && walkAmt > 0.15 && (s > 0) !== (this.lastSin > 0)) this.onStep?.(s > 0 ? 0 : 1);
+    const inAir = !!pose.air && !sitting;
+    if (this.wasInAir && !inAir) this.a.land = 1;
+    this.wasInAir = inAir;
+    this.a.air = damp(this.a.air, inAir ? 1 : 0, 16, dt);
+    this.a.land = Math.max(0, this.a.land - dt * 5);
+    const air = this.a.air;
+    const land = this.a.land * this.a.land;
+    const stride = walkAmt * (1 - air);
+    if (!sitting && !inAir && walkAmt > 0.15 && (s > 0) !== (this.lastSin > 0)) this.onStep?.(s > 0 ? 0 : 1);
     this.lastSin = s;
 
     // Blend towards the pose's seated-ness.
@@ -306,14 +317,14 @@ export class Fisher {
 
     if (!sitting) {
       const bob = Math.abs(Math.cos(ph)) * 0.03 * walkAmt;
-      this.hips.position.y = 0.96 + bob - 0.012 * walkAmt;
+      this.hips.position.y = 0.96 + bob * (1 - air) - 0.012 * walkAmt - land * 0.06;
       this.hips.rotation.set(0, Math.sin(ph) * 0.05 * walkAmt, Math.sin(ph) * 0.03 * walkAmt);
-      this.spine.rotation.set(-0.05 - walkAmt * 0.09 + breathe, -Math.sin(ph) * 0.1 * walkAmt, -Math.sin(ph) * 0.02 * walkAmt);
-      this.thigh[0].rotation.set(s * 0.58 * walkAmt, 0, -0.02);
-      this.thigh[1].rotation.set(-s * 0.58 * walkAmt, 0, 0.02);
-      const knee = (x: number) => -(0.1 + 0.85 * Math.max(0, Math.sin(x - 0.9)) * walkAmt);
-      this.shin[0].rotation.set(knee(ph + Math.PI), 0, 0);
-      this.shin[1].rotation.set(knee(ph), 0, 0);
+      this.spine.rotation.set(-0.05 - walkAmt * 0.09 + breathe - air * 0.1 - land * 0.22, -Math.sin(ph) * 0.1 * stride, -Math.sin(ph) * 0.02 * stride);
+      this.thigh[0].rotation.set(s * 0.58 * stride + air * 0.85 + land * 0.4, 0, -0.02);
+      this.thigh[1].rotation.set(-s * 0.58 * stride + air * 0.5 + land * 0.4, 0, 0.02);
+      const knee = (x: number) => -(0.1 + 0.85 * Math.max(0, Math.sin(x - 0.9)) * stride);
+      this.shin[0].rotation.set(knee(ph + Math.PI) - air * 1.25 - land * 0.7, 0, 0);
+      this.shin[1].rotation.set(knee(ph) - air * 0.95 - land * 0.7, 0, 0);
     } else if (pose.mode === 'row' || pose.mode === 'boatSit') {
       this.hips.position.y = 0.53 / this.k;
       const lean = pose.mode === 'row' ? pose.rowLean ?? 0 : -0.1;
@@ -383,7 +394,7 @@ export class Fisher {
       // Walking: rod on the right shoulder, left arm swinging, the way anyone carries a rod.
       const swing = pose.mode === 'stand' ? Math.sin(ph) * 0.5 * walkAmt : 0;
       const restL = pose.mode === 'benchSit' || pose.mode === 'dockSit' ? 0.45 : 0.04;
-      this.upper[0].rotation.set(swing + restL, 0, -0.1);
+      this.upper[0].rotation.set(swing * (1 - air) + restL + air * 0.9, 0, -0.1 - air * 0.5);
       this.fore[0].rotation.set(0.3 + walkAmt * 0.25 + (pose.mode === 'benchSit' ? 0.7 : 0), 0, 0);
       this.root.updateMatrixWorld(true);
       if (pose.mode === 'stand') {

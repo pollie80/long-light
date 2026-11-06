@@ -32,10 +32,15 @@ const SAVE_KEY = 'longlight.save.v1';
 const DOOR = { x: 112.4, z: COTTAGE.z };
 const START = pathPoint(9);
 
-interface Save { journal: Journal; paint: number; music: number; sfx: number; sensitivity: number; muteAway: boolean; name: string; look?: Partial<CharacterLook> }
+const JUMP_SPEED = 4.4;
+const GRAVITY = 12.5;
+/** Where you can cast, a press shorter than this is a jump and a longer one is a cast. */
+const TAP_S = 0.22;
+
+interface Save { journal: Journal; paint: number; music: number; sfx: number; sensitivity: number; muteAway: boolean; name: string; walkSpeed: number; rowSpeed: number; look?: Partial<CharacterLook> }
 
 function loadSave(): Save {
-  const d: Save = { journal: {}, paint: 6, music: 0.7, sfx: 0.9, sensitivity: 1, muteAway: true, name: '' };
+  const d: Save = { journal: {}, paint: 6, music: 0.7, sfx: 0.9, sensitivity: 1, muteAway: true, name: '', walkSpeed: 1, rowSpeed: 1 };
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (raw) return { ...d, ...JSON.parse(raw) };
@@ -80,9 +85,18 @@ export class Game {
   private netError = '';
   private netStatus = '';
   private joinCode: string | null = null;
+  airborne = false;
+  private jumpY = 0;
+  private jumpV = 0;
+  private chargeT = 0;
+  private chargeByKey = false;
+  private wasMenu = false;
   private clockSendT = 0;
   private clockTouchedAt = -1e9;
   private qualityT = 0;
+  private qualityUpT = 0;
+  private qualityCeil = 1;
+  private qualityRaisedAt = -1e9;
   private lampK = 0;
   private lastPose: PoseInput | null = null;
 
@@ -198,6 +212,18 @@ export class Game {
         this.ui.refreshMenu();
       },
       getSensitivity: () => this.save.sensitivity,
+      setWalkSpeed: (v) => {
+        this.save.walkSpeed = v;
+        this.writeSave();
+        this.ui.refreshMenu();
+      },
+      getWalkSpeed: () => this.save.walkSpeed,
+      setRowSpeed: (v) => {
+        this.save.rowSpeed = v;
+        this.writeSave();
+        this.ui.refreshMenu();
+      },
+      getRowSpeed: () => this.save.rowSpeed,
       setMuteAway: (v) => {
         this.save.muteAway = v;
         this.writeSave();
@@ -426,6 +452,7 @@ export class Game {
     const rod = pose.rodDir!;
     return {
       x: r(p.x), y: r(p.y), z: r(p.z), yaw: r(this.inBoat ? 0 : root.rotation.y),
+      air: this.airborne,
       mode: pose.mode,
       sp: r(pose.speed),
       ib: this.inBoat, fy: r(this.fisherYaw),
@@ -467,11 +494,29 @@ export class Game {
 
   /** Drops the internal resolution on slower computers, rather than let a friend's game crawl. */
   private adaptQuality(dt: number) {
+    // Another program hogging the graphics card while this one is behind it says nothing about this computer.
+    if (document.hidden || !document.hasFocus()) {
+      this.qualityT = 0;
+      this.qualityUpT = 0;
+      return;
+    }
+    const pipe = this.pipe;
     this.qualityT = this.fpsAvg < 27 ? this.qualityT + dt : 0;
-    if (this.qualityT < 5 || this.pipe.renderScale <= 0.5) return;
-    this.qualityT = 0;
-    this.pipe.renderScale = Math.max(0.5, this.pipe.renderScale - 0.15);
-    this.resize();
+    this.qualityUpT = this.fpsAvg > 58 ? this.qualityUpT + dt : 0;
+    if (this.qualityT >= 5 && pipe.renderScale > 0.5) {
+      // Struggling soon after a step back up means that step was too much, so stay below it for good.
+      if (this.time - this.qualityRaisedAt < 30) this.qualityCeil = pipe.renderScale - 0.15;
+      pipe.renderScale = Math.max(0.5, pipe.renderScale - 0.15);
+      this.qualityT = 0;
+      this.qualityUpT = 0;
+      this.resize();
+    } else if (this.qualityUpT >= 12 && pipe.renderScale < this.qualityCeil) {
+      // A slow patch has passed, so the sharp picture comes back.
+      pipe.renderScale = Math.min(this.qualityCeil, pipe.renderScale + 0.15);
+      this.qualityRaisedAt = this.time;
+      this.qualityUpT = 0;
+      this.resize();
+    }
   }
 
   /** Leaves the title screen for the cove. */
@@ -795,7 +840,7 @@ export class Game {
       my = 0;
       this.strolling = false;
     } else if (this.strolling) {
-      const pace = 2.3;
+      const pace = 2.3 * this.save.walkSpeed;
       this.strollS += pace * this.strollDir * dt;
       const end = this.routeEnd();
       if (this.strollS >= end || this.strollS <= 2) this.strolling = false;
@@ -820,7 +865,7 @@ export class Game {
       const l = Math.hypot(dx, dz) || 1;
       wx = dx / l;
       wz = dz / l;
-      wish = f * (inp.jog ? 4.2 : 2.5);
+      wish = f * (inp.jog ? 4.2 : 2.5) * this.save.walkSpeed;
     }
     this.speed = damp(this.speed, wish, wish > this.speed ? 3.5 : 5.5, dt);
     if (this.speed > 0.02) {
@@ -846,14 +891,15 @@ export class Game {
     }
     const ground = onJetty(this.px, this.pz) ? Math.max(DECK_Y, groundY(this.px, this.pz)) : groundY(this.px, this.pz);
     this.py = damp(this.py, ground, 14, dt);
-    this.fisher.root.position.set(this.px, this.py, this.pz);
+    this.updateJump(dt);
+    this.fisher.root.position.set(this.px, this.py + this.jumpY, this.pz);
     this.fisher.root.rotation.set(0, this.facing, 0);
 
     // What is within reach.
     let prompt: string | null = null;
     const pad = inp.usingPad;
     const E = pad ? '<kbd>Square</kbd>' : '<kbd>E</kbd>';
-    const canUse = !this.fishing.active;
+    const canUse = !this.fishing.active && !this.airborne;
     const onDeck = onJetty(this.px, this.pz);
     const atBoat = onDeck && Math.abs(this.px - this.boat.home.x) < 3.4;
     const atEnd = onDeck && this.px < JETTY.endX + 2.2;
@@ -885,9 +931,39 @@ export class Game {
       else this.startStroll();
     }
 
-    // Casting from the deck.
-    if (onDeck && this.px < -6) this.handleCast(dt, new THREE.Vector3(this.px, this.py + 1.5, this.pz));
+    // Space jumps. Standing where you can cast, a hold casts and a tap jumps.
+    const castHere = onDeck && this.px < -6;
+    const keyPressed = inp.was('Space') || inp.was('PadCross');
+    if (keyPressed && !this.fishing.active && !this.airborne && !this.wasMenu && (!castHere || this.speed > 0.4)) this.jump();
+    else if (castHere && !this.airborne) this.handleCast(dt, new THREE.Vector3(this.px, this.py + 1.5, this.pz));
     else if (this.fishing.active) this.fishing.reelIn();
+  }
+
+  private jump() {
+    this.airborne = true;
+    this.jumpV = JUMP_SPEED;
+    this.jumpY = 0.001;
+    this.audio.step(this.surfaceHere(), 0);
+  }
+
+  private updateJump(dt: number) {
+    if (!this.airborne) return;
+    this.jumpV -= GRAVITY * dt;
+    this.jumpY += this.jumpV * dt;
+    if (this.jumpY <= 0) {
+      this.jumpY = 0;
+      this.jumpV = 0;
+      this.airborne = false;
+      const surface = this.surfaceHere();
+      this.audio.step(surface, 0);
+      this.audio.step(surface, 1);
+    }
+  }
+
+  /** A key press might still turn out to be a tap for a jump, so the fisher does not raise the rod yet. */
+  private get fishingShows(): boolean {
+    const f = this.fishing;
+    return f.active && !(f.state === 'charge' && this.chargeByKey && this.chargeT < TAP_S && this.mode === 'walk');
   }
 
   private enterSit(kind: 'dock' | 'bench') {
@@ -993,6 +1069,7 @@ export class Game {
   }
 
   private updateRow(dt: number, t: number) {
+    this.boat.power = this.save.rowSpeed;
     const inp = this.input;
     const fishingActive = this.fishing.active;
     const resting = fishingActive || this.beer.active;
@@ -1017,17 +1094,25 @@ export class Game {
     const pressed = inp.was('Space') || inp.was('PadCross') || (this.leftClickPressed());
     switch (f.state) {
       case 'idle':
-        if (pressed && !this.anyMenuOpen()) {
+        if (pressed && !this.anyMenuOpen() && !this.wasMenu) {
           f.beginCharge();
-          this.hintedCast = true;
+          this.chargeT = 0;
+          this.chargeByKey = inp.was('Space') || inp.was('PadCross');
           this.ui.prompt(null);
         }
         break;
       case 'charge': {
-        this.ui.charge(f.charge);
+        this.chargeT += dt;
+        this.ui.charge(this.fishingShows ? f.charge : null);
         if (!inp.action) {
           this.ui.charge(null);
-          f.release(this.fisher.rodTip.clone(), this.aimDir(), this.audio);
+          if (this.mode === 'walk' && !this.fishingShows) {
+            f.reelIn();
+            this.jump();
+          } else {
+            f.release(this.fisher.rodTip.clone(), this.aimDir(), this.audio);
+            this.hintedCast = true;
+          }
           this.ui.prompt(null);
         }
         break;
@@ -1215,7 +1300,7 @@ export class Game {
         this.mode = 'walk';
         this.ui.hint(this.input.usingPad
           ? 'left stick to walk, right stick to look<br><kbd>Triangle</kbd> stroll, <kbd>Square</kbd> use, <kbd>L1</kbd> a beer, <kbd>Options</kbd> menu'
-          : '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to walk, mouse to look<br><kbd>Q</kbd> stroll along the path by itself<br><kbd>E</kbd> use, <kbd>B</kbd> a beer, <kbd>Esc</kbd> menu', 14);
+          : '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to walk, mouse to look<br><kbd>Q</kbd> stroll along the path by itself<br><kbd>Space</kbd> jump, <kbd>E</kbd> use, <kbd>B</kbd> a beer, <kbd>Esc</kbd> menu', 14);
       }
     } else {
       this.camera.position.copy(pos);
@@ -1317,7 +1402,8 @@ export class Game {
     } else if (menu) {
       // World keeps breathing behind the page, but the fisher waits.
       if (this.mode === 'walk' || this.mode === 'sit') {
-        this.fisher.root.position.set(this.px, this.py, this.pz);
+        this.updateJump(dt);
+        this.fisher.root.position.set(this.px, this.py + this.jumpY, this.pz);
         this.fisher.root.rotation.set(0, this.facing, 0);
       }
     } else if (this.mode === 'walk') {
@@ -1385,6 +1471,7 @@ export class Game {
     // Fishing and fisher pose.
     this.fishing.update(dt, t, this.hour, inp.action && !menu, (inp.was('Space') || inp.was('PadCross') || this.leftClickPressed()) && !menu, this.fisher.rodBase, this.fisher.rodTip, this.water, this.audio);
     this.lastMouse = inp.action;
+    this.wasMenu = menu;
 
     this.updateBeer(dt, menu);
 
@@ -1477,7 +1564,8 @@ export class Game {
     const f = this.fishing;
     let mode: PoseMode = 'stand';
     if (this.mode === 'sit') mode = this.sitKind === 'dock' ? 'dockSit' : 'benchSit';
-    if (this.inBoat) mode = f.active ? 'boatSit' : 'row';
+    const showing = this.fishingShows;
+    if (this.inBoat) mode = showing ? 'boatSit' : 'row';
     const handleL = new THREE.Vector3();
     const handleR = new THREE.Vector3();
     if (this.inBoat) {
@@ -1485,10 +1573,10 @@ export class Game {
       this.boat.handle(1, handleL);
       this.boat.handle(0, handleR);
       // Swivel on the thwart to face a cast, or back to the oars.
-      const aimYaw = f.active ? Math.atan2(-this.aimDir().x, -this.aimDir().z) - this.boat.heading : Math.PI;
-      this.fisherYaw += wrapAngle(aimYaw - this.fisherYaw) * (1 - Math.exp(-(f.active ? 5 : 3) * 0.016));
+      const aimYaw = showing ? Math.atan2(-this.aimDir().x, -this.aimDir().z) - this.boat.heading : Math.PI;
+      this.fisherYaw += wrapAngle(aimYaw - this.fisherYaw) * (1 - Math.exp(-(showing ? 5 : 3) * 0.016));
       this.fisher.root.rotation.y = this.fisherYaw;
-    } else if (f.active) {
+    } else if (showing) {
       const a = this.aimDir();
       const target = Math.atan2(-a.x, -a.z);
       this.facing += wrapAngle(target - this.facing) * 0.12;
@@ -1501,7 +1589,8 @@ export class Game {
       handleL,
       handleR,
       rowLean: this.boat.rowing ? -Math.cos(ph) : -Math.cos(ph) * 0.25,
-      fishing: f.active,
+      fishing: showing,
+      air: this.airborne,
       rodDir: this.rodAim(),
       rodBend: f.bendAmount(this.time),
       reelSpin: f.reelSpin,
