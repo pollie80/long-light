@@ -1029,7 +1029,7 @@ export class Game {
       else if (!this.strolling && this.speed < 0.1 && !onDeck && this.idleT > 8 && !this.hintedBoat) prompt = pad ? '<kbd>Triangle</kbd> stroll along the path' : '<kbd>Q</kbd> stroll along the path';
     }
     const petNear = this.pet.exists && this.pet.worldPos(this.petTmp).distanceTo(this.fisher.root.position) < 1.9;
-    if (!prompt && canUse && petNear && this.speed < 0.2 && !this.patted) prompt = `<kbd>P</kbd> pat the ${this.pet.name}`;
+    if (!prompt && canUse && petNear && this.speed < 0.2 && !this.patted && !this.gunOut) prompt = `<kbd>P</kbd> pat the ${this.pet.name}`;
     if (canUse && !this.ui.menuOpen) this.ui.prompt(prompt);
     if (inp.was('KeyP') && petNear && !this.fishing.active) {
       this.pet.pat();
