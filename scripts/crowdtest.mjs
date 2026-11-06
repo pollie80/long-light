@@ -31,7 +31,14 @@ const until = async (page, fn, arg, ms = 30000) => {
 async function open(u, label, size) {
   const ctx = await browser.newContext({ viewport: size });
   const page = await ctx.newPage();
-  page.on('console', (m) => { if (m.type() === 'error' && !m.text().includes('404')) errors.push(`${label}: ${m.text().slice(0, 400)}`); });
+  if (process.env.LL_BLOCK_DIRECT) {
+    await page.addInitScript(() => {
+      const RTC = window.RTCPeerConnection;
+      window.RTCPeerConnection = function () { return new RTC({ iceServers: [], iceTransportPolicy: 'relay' }); };
+      window.RTCPeerConnection.prototype = RTC.prototype;
+    });
+  }
+  page.on('console', (m) => { if (m.type() === 'error' && !m.text().includes('404') && !m.text().includes('WebSocket connection')) errors.push(`${label}: ${m.text().slice(0, 400)}`); });
   page.on('pageerror', (e) => errors.push(`${label} PAGEERROR ${e.message}`));
   await page.goto(u);
   await page.waitForFunction(() => window.__ll?.ready === true, null, { timeout: 400000, polling: 500 });

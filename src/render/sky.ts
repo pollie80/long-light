@@ -5,10 +5,11 @@ import { fsMat, fsq, common } from './fsq';
 import panoFrag from '../shaders/sky_pano.glsl?raw';
 import { U } from './shared';
 import { Look } from '../core/time';
+import { Q } from '../core/quality';
 
-const W = 4096;
-const H = 1024;
-const CYCLE_SECONDS = 4.0;
+const W = Q.skyW;
+const H = W / 4;
+const CYCLE_SECONDS = Q.skyCycle;
 
 export interface SkyWeather {
   cover: number;

@@ -1,6 +1,7 @@
 // A friend, as seen on this screen: their fisher, their boat, their line and whatever is on it.
 import * as THREE from 'three';
 import { Boat } from '../actors/boat';
+import { Pet } from '../actors/pet';
 import { Fisher, PoseInput } from '../actors/fisher';
 import { CharacterLook } from '../actors/look';
 import { damp } from '../core/noise';
@@ -16,7 +17,8 @@ const LINE_POINTS = 18;
 
 export class RemotePlayer {
   fisher: Fisher;
-  boat = new Boat();
+  boat: Boat;
+  pet: Pet;
   private bobber = makeBobber();
   private line: THREE.Line;
   private linePos = new Float32Array(LINE_POINTS * 3);
@@ -32,13 +34,23 @@ export class RemotePlayer {
   private yaw = 0;
   private fy = Math.PI;
   private tmp = new THREE.Vector3();
+  private tmp2 = new THREE.Vector3();
+  private recoil = 0;
+  private lastShots = -1;
+  onShot: ((at: THREE.Vector3) => void) | null = null;
   private lure = new THREE.Vector3();
 
   constructor(private scene: THREE.Scene, private late: THREE.Scene, lineMat: THREE.Material, look: CharacterLook, name: string, uiRoot: HTMLElement) {
     this.fisher = new Fisher(look);
+    this.boat = new Boat(look);
+    this.pet = new Pet(look);
+    scene.add(this.pet.root);
+    this.pet.root.visible = false;
     scene.add(this.boat.group);
     scene.add(this.fisher.root);
     scene.add(this.fisher.rod);
+    scene.add(this.fisher.gun);
+    this.fisher.gun.visible = false;
     this.fisher.root.visible = false;
     this.fisher.rod.visible = false;
     this.boat.group.visible = false;
@@ -62,6 +74,9 @@ export class RemotePlayer {
 
   setLook(look: CharacterLook) {
     this.fisher.applyLook(look);
+    this.boat.applyLook(look);
+    this.pet.applyLook(look);
+    if (!this.seen) this.pet.root.visible = false;
   }
 
   private setBoarded(v: boolean) {
@@ -92,6 +107,7 @@ export class RemotePlayer {
       this.fisher.root.visible = true;
       this.fisher.rod.visible = true;
       this.boat.group.visible = true;
+      this.pet.root.visible = this.pet.exists;
     }
     this.boat.puppet(dt, t, s.bx, s.bz, s.bh, s.bs, s.bp, s.bo, s.br, water);
     this.boat.mat.uniforms.uEmisOn.value = lampK;
@@ -116,7 +132,15 @@ export class RemotePlayer {
       this.boat.handle(1, handleL);
       this.boat.handle(0, handleR);
     }
-    const fishing = s.fs !== 'idle';
+    // Their shot: the flash, and the sound of it carrying across the water.
+    if (this.lastShots === -1) this.lastShots = s.shots;
+    if (s.shots !== this.lastShots) {
+      this.lastShots = s.shots;
+      this.recoil = 1;
+      this.onShot?.(this.fisher.gunTip);
+    }
+    this.recoil = Math.max(0, this.recoil - dt * 6);
+    const fishing = s.fs !== 'idle' && !s.gun;
     const pose: PoseInput = {
       mode: s.mode,
       speed: s.sp,
@@ -130,8 +154,18 @@ export class RemotePlayer {
       beerOut: s.bOut,
       beerLift: s.bLift,
       air: s.air,
+      gun: s.gun,
+      recoil: this.recoil,
     };
     this.fisher.update(dt, t, pose);
+    this.pet.update(dt, t, {
+      pos: this.fisher.root.getWorldPosition(this.tmp2),
+      facing: s.ib ? s.bh : this.yaw,
+      speed: s.sp,
+      inBoat: s.ib,
+      air: s.air,
+      boat: this.boat,
+    });
 
     this.updateFishing(t, s, water);
     this.updateTag(camera, viewW, viewH);
@@ -215,9 +249,11 @@ export class RemotePlayer {
 
   dispose() {
     this.dropModel();
+    this.pet.dispose();
     this.scene.remove(this.boat.group);
     this.scene.remove(this.fisher.root);
     this.scene.remove(this.fisher.rod);
+    this.scene.remove(this.fisher.gun);
     this.scene.remove(this.bobber);
     this.late.remove(this.line);
     this.line.geometry.dispose();

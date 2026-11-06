@@ -3,3 +3,6 @@ dist
 screenshots
 .claude
 *.lnk
+
+.build-test
+release

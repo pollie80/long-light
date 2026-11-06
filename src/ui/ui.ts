@@ -3,8 +3,15 @@ import './styles.css';
 import { clockLabel, sunDir } from '../core/time';
 import { SPECIES, Species } from '../game/fishdata';
 import { paintFish } from '../game/fishart';
-import { Wardrobe, WardrobeHooks } from './wardrobe';
+import { BOAT_PANEL, LOOK_PANEL, PET_PANEL, Wardrobe, WardrobeHooks, WardrobePanel } from './wardrobe';
 import { ICON } from './icons';
+import { MAP, MAP_ORDER, MapId, MAPS } from '../world/maps';
+import { Q, QUALITIES, QUALITY_ORDER, QualityId } from '../core/quality';
+import coveImg from '../../assets/place-cove.jpg?inline';
+import philippinesImg from '../../assets/place-philippines.jpg?inline';
+import canadaImg from '../../assets/place-canada.jpg?inline';
+
+const PLACE_IMG: Record<MapId, string> = { cove: coveImg, philippines: philippinesImg, canada: canadaImg };
 
 export interface JournalEntry { count: number; firstHour: number; biggest?: number }
 export type Journal = Record<string, JournalEntry>;
@@ -18,8 +25,6 @@ export interface MenuHooks {
   getHour(): number;
   setClockRunning(v: boolean): void;
   getClockRunning(): boolean;
-  setPaint(v: number): void;
-  getPaint(): number;
   setMusic(v: number): void;
   getMusic(): number;
   setSfx(v: number): void;
@@ -34,8 +39,22 @@ export interface MenuHooks {
   getWalkSpeed(): number;
   setRowSpeed(v: number): void;
   getRowSpeed(): number;
-  wardrobe(): void;
+  wardrobe(kind: 'self' | 'boat' | 'pet'): void;
   friends(): void;
+  places(): void;
+  closePlaces(): void;
+  choosePlace(id: MapId): void;
+  setQuality(id: QualityId): void;
+  setFpsCap(v: number): void;
+  getFpsCap(): number;
+  setResolution(v: number): void;
+  getResolution(): number;
+  setQuietAway(v: boolean): void;
+  getQuietAway(): boolean;
+  setAdapt(v: boolean): void;
+  getAdapt(): boolean;
+  setShowFps(v: boolean): void;
+  getShowFps(): boolean;
   play(): void;
   closeFriends(): void;
   startHosting(name: string): void;
@@ -73,6 +92,7 @@ export class UI {
   journalOpen = false;
   restOpen = false;
   friendsOpen = false;
+  placesOpen = false;
   /** The invite panel on the title screen for someone who followed a link. */
   joining = false;
   private focusI = 0;
@@ -83,10 +103,13 @@ export class UI {
     this.root.innerHTML = /* html */ `
       <div id="title" class="fade hidden">
         <h1>Long Light</h1>
-        <p>a quiet place to fish</p>
+        <p>${MAP.tagline}</p>
         <div class="titleBtns" id="tBtns">
           <button class="pill big" id="tPlay">${ICON.play}<span>Play</span></button>
+          <button class="pill" id="tPlace">${ICON.map}<span>${MAP.name}</span></button>
           <button class="pill" id="tLook">${ICON.hat}<span>Your look</span></button>
+          <button class="pill" id="tBoat">${ICON.boat}<span>Your boat</span></button>
+          <button class="pill" id="tPet">${ICON.paw}<span>Your pet</span></button>
           <button class="pill" id="tFriends">${ICON.people}<span>Play with friends</span></button>
         </div>
         <div class="titleBtns gone" id="tJoin">
@@ -136,6 +159,16 @@ export class UI {
         <button data-h="20.3">Nightfall</button>
         <button data-h="-1" class="quiet">Cancel</button>
       </div>
+      <div id="fps" class="gone"></div>
+      <div id="sights" class="gone"><i></i><div id="shells"><b></b><b></b></div></div>
+      <div id="places" class="paper hidden">
+        <h2>${ICON.map} Choose a place</h2>
+        <div class="placeCards">
+          ${MAP_ORDER.map((id) => `<button class="placeCard${id === MAP.id ? ' here' : ''}" data-map="${id}"><img src="${PLACE_IMG[id]}" alt=""><b>${MAPS[id].name}</b><span>${MAPS[id].blurb}</span><i>${id === MAP.id ? 'You are here' : ''}</i></button>`).join('')}
+        </div>
+        <div class="status" id="pNote"></div>
+        <div class="friendsFoot"><button class="iconBtn" id="pBack">${ICON.back}<span>Back</span></button></div>
+      </div>
       <div id="friends" class="paper hidden">
         <h2>${ICON.people} Friends</h2>
         <label class="field">Your name <input type="text" id="fName" maxlength="20" placeholder="What should they call you?" autocomplete="off"></label>
@@ -162,34 +195,50 @@ export class UI {
         <div class="tiles">
           <button class="tile primary" id="mResume">${ICON.play}<span>Resume</span></button>
           <button class="tile" id="mJournal">${ICON.book}<span>Journal</span></button>
-          <button class="tile" id="mLook">${ICON.hat}<span>Your look</span></button>
           <button class="tile" id="mInvite">${ICON.people}<span>Friends</span><i id="mCount" class="gone"></i></button>
+          <button class="tile" id="mPlace">${ICON.map}<span>Place</span></button>
+          <button class="tile" id="mLook">${ICON.hat}<span>Your look</span></button>
+          <button class="tile" id="mBoat">${ICON.boat}<span>Your boat</span></button>
+          <button class="tile" id="mPet">${ICON.paw}<span>Your pet</span></button>
+          <button class="tile" id="mGfx">${ICON.gem}<span>Graphics</span></button>
         </div>
         <div id="mSettings">
           <h4>World</h4>
           <div class="set">${ICON.sun}<label for="timeTrack">Time of day</label><input id="timeTrack" type="range" min="0" max="24" step="0.05"><b id="mTimeV"></b></div>
           <div class="set switch" id="mClock" role="switch" tabindex="0">${ICON.clock}<label>Sun moves by itself</label><span class="sw"><i></i></span></div>
-          <div class="set">${ICON.brush}<label for="mPaint">Paint effect</label><input id="mPaint" type="range" min="0" max="10" step="1"><b id="mPaintV"></b></div>
           <h4>Sound</h4>
           <div class="set">${ICON.music}<label for="mMusic">Music</label><input id="mMusic" type="range" min="0" max="100" step="1"><b id="mMusicV"></b></div>
           <div class="set">${ICON.speaker}<label for="mSfx">Sounds</label><input id="mSfx" type="range" min="0" max="100" step="1"><b id="mSfxV"></b></div>
           <div class="set switch" id="mAway" role="switch" tabindex="0">${ICON.muted}<label>Mute when in background</label><span class="sw"><i></i></span></div>
           <h4>Moving</h4>
           <div class="set">${ICON.boot}<label for="mWalk">Walking speed</label><input id="mWalk" type="range" min="50" max="300" step="5"><b id="mWalkV"></b></div>
-          <div class="set">${ICON.boat}<label for="mRow">Rowing speed</label><input id="mRow" type="range" min="50" max="300" step="5"><b id="mRowV"></b></div>
+          <div class="set">${ICON.boat}<label for="mRow">Rowing speed</label><input id="mRow" type="range" min="50" max="2000" step="10"><b id="mRowV"></b></div>
           <div class="set">${ICON.mouse}<label for="mSens">Mouse sensitivity</label><input id="mSens" type="range" min="10" max="300" step="5"><b id="mSensV"></b></div>
+        </div>
+        <div id="mGraphics" class="gone">
+          <h4>Quality <small>changing this reloads the game</small></h4>
+          <div class="pills" id="gQuality">${QUALITY_ORDER.map((q) => `<button data-q="${q}" class="${q === Q.id ? 'on' : ''}">${QUALITIES[q].label}</button>`).join('')}</div>
+          <h4>Frame rate limit</h4>
+          <div class="pills" id="gCap">${[30, 60, 120, 0].map((v) => `<button data-cap="${v}">${v || 'None'}</button>`).join('')}</div>
+          <div class="set">${ICON.expand}<label for="gRes">Resolution</label><input id="gRes" type="range" min="50" max="100" step="5"><b id="gResV"></b></div>
+          <div class="set switch" id="gAdapt" role="switch" tabindex="0">${ICON.gem}<label>Lower resolution if it gets slow</label><span class="sw"><i></i></span></div>
+          <div class="set switch" id="gQuiet" role="switch" tabindex="0">${ICON.clock}<label>Slow down in the background</label><span class="sw"><i></i></span></div>
+          <div class="set switch" id="gFps" role="switch" tabindex="0">${ICON.keys}<label>Show frame rate</label><span class="sw"><i></i></span></div>
         </div>
         <div id="mKeys" class="gone">
           <h4>Moving</h4>
           <div class="keyRow"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span>Walk or row</div>
           <div class="keyRow"><span><kbd>Mouse</kbd></span>Look around</div>
           <div class="keyRow"><span><kbd>Q</kbd></span>Stroll the path by itself</div>
-          <div class="keyRow"><span><kbd>Shift</kbd></span>Hurry a little</div>
+          <div class="keyRow"><span><kbd>Shift</kbd></span>Hurry, or row twice as fast</div>
           <div class="keyRow"><span><kbd>Space</kbd> tap</span>Jump</div>
           <h4>Doing</h4>
           <div class="keyRow"><span><kbd>E</kbd></span>Use what is nearby</div>
           <div class="keyRow"><span><kbd>Space</kbd> hold or <kbd>Click</kbd></span>Cast, hook, reel</div>
           <div class="keyRow"><span><kbd>B</kbd></span>Have a beer</div>
+          <div class="keyRow"><span><kbd>P</kbd></span>Pat your pet</div>
+          <div class="keyRow"><span><kbd>G</kbd></span>Shotgun in or out</div>
+          <div class="keyRow"><span><kbd>Click</kbd> with shotgun</span>Fire</div>
           <h4>Other</h4>
           <div class="keyRow"><span><kbd>J</kbd></span>Journal</div>
           <div class="keyRow"><span><kbd>T</kbd> hold</span>Bring the sun along</div>
@@ -212,20 +261,56 @@ export class UI {
     const h = this.hooks;
     el('mResume').onclick = () => h.resume();
     el('mJournal').onclick = () => h.journal();
-    el('mLook').onclick = () => h.wardrobe();
+    el('mLook').onclick = () => h.wardrobe('self');
+    el('mBoat').onclick = () => h.wardrobe('boat');
+    el('mPet').onclick = () => h.wardrobe('pet');
     el('mInvite').onclick = () => h.friends();
-    el('mHelp').onclick = () => {
-      const showKeys = el('mKeys').classList.contains('gone');
-      el('mKeys').classList.toggle('gone', !showKeys);
-      el('mSettings').classList.toggle('gone', showKeys);
-      el('mHelpT').textContent = showKeys ? 'Settings' : 'Controls';
+    const section = (which: 'mSettings' | 'mKeys' | 'mGraphics') => {
+      for (const id of ['mSettings', 'mKeys', 'mGraphics']) el(id).classList.toggle('gone', id !== which);
+      el('mHelpT').textContent = which === 'mKeys' ? 'Settings' : 'Controls';
       h.sound('tick');
     };
+    el('mHelp').onclick = () => section(el('mKeys').classList.contains('gone') ? 'mKeys' : 'mSettings');
+    el('mGfx').onclick = () => section(el('mGraphics').classList.contains('gone') ? 'mGraphics' : 'mSettings');
+    el('mPlace').onclick = () => h.places();
+    el('tPlace').onclick = () => h.places();
+    el('pBack').onclick = () => h.closePlaces();
+    el('places').querySelectorAll<HTMLButtonElement>('.placeCard').forEach((b) => {
+      b.onclick = () => h.choosePlace(b.dataset.map as MapId);
+    });
+    el('gQuality').querySelectorAll<HTMLButtonElement>('button').forEach((b) => {
+      b.onclick = () => {
+        if (b.dataset.q !== Q.id) h.setQuality(b.dataset.q as QualityId);
+      };
+    });
+    el('gCap').querySelectorAll<HTMLButtonElement>('button').forEach((b) => {
+      b.onclick = () => {
+        h.setFpsCap(Number(b.dataset.cap));
+        h.sound('tick');
+        this.refreshMenu();
+      };
+    });
+    el<HTMLInputElement>('gRes').oninput = (e) => h.setResolution(parseFloat((e.target as HTMLInputElement).value) / 100);
+    const flip = (id: string, get: () => boolean, set: (v: boolean) => void) => {
+      el(id).onclick = () => {
+        set(!get());
+        h.sound('tick');
+        this.refreshMenu();
+      };
+      el(id).onkeydown = (e) => {
+        if (e.code === 'Enter' || e.code === 'Space') el(id).click();
+      };
+    };
+    flip('gAdapt', h.getAdapt, h.setAdapt);
+    flip('gQuiet', h.getQuietAway, h.setQuietAway);
+    flip('gFps', h.getShowFps, h.setShowFps);
     // Title screen.
     el('tPlay').onclick = () => h.play();
-    el('tLook').onclick = () => h.wardrobe();
+    el('tLook').onclick = () => h.wardrobe('self');
+    el('tBoat').onclick = () => h.wardrobe('boat');
+    el('tPet').onclick = () => h.wardrobe('pet');
     el('tFriends').onclick = () => h.friends();
-    el('jLook').onclick = () => h.wardrobe();
+    el('jLook').onclick = () => h.wardrobe('self');
     el('jGo').onclick = () => h.joinCove(el<HTMLInputElement>('jName').value);
     el('jAlone').onclick = () => {
       this.showJoin(false);
@@ -276,7 +361,6 @@ export class UI {
       this.refreshMenu();
     };
     el<HTMLInputElement>('timeTrack').oninput = (e) => h.setHour(parseFloat((e.target as HTMLInputElement).value));
-    el<HTMLInputElement>('mPaint').oninput = (e) => h.setPaint(parseFloat((e.target as HTMLInputElement).value));
     el<HTMLInputElement>('mMusic').oninput = (e) => h.setMusic(parseFloat((e.target as HTMLInputElement).value) / 100);
     el<HTMLInputElement>('mSfx').oninput = (e) => h.setSfx(parseFloat((e.target as HTMLInputElement).value) / 100);
     el('rest').querySelectorAll('button').forEach((b) => {
@@ -444,11 +528,12 @@ export class UI {
   }
 
   private updateVeil() {
-    el('veil').classList.toggle('hidden', !(this.journalOpen || this.menuOpen || this.restOpen || this.friendsOpen));
+    el('veil').classList.toggle('hidden', !(this.journalOpen || this.menuOpen || this.restOpen || this.friendsOpen || this.placesOpen));
   }
 
-  setWardrobe(v: boolean) {
-    this.wardrobe.show(v);
+  setWardrobe(v: boolean, kind: 'self' | 'boat' | 'pet' = 'self') {
+    const panel: WardrobePanel = kind === 'boat' ? BOAT_PANEL : kind === 'pet' ? PET_PANEL : LOOK_PANEL;
+    this.wardrobe.show(v, panel);
   }
 
   refreshMenu() {
@@ -458,9 +543,6 @@ export class UI {
     el('mTimeV').textContent = clockLabel(hour);
     el('mClock').classList.toggle('on', h.getClockRunning());
     el('mClock').setAttribute('aria-checked', String(h.getClockRunning()));
-    const p = h.getPaint();
-    el<HTMLInputElement>('mPaint').value = String(p);
-    el('mPaintV').textContent = p === 0 ? 'Off' : p < 4 ? 'Light' : p < 7 ? 'Medium' : 'Strong';
     const m = h.getMusic();
     el<HTMLInputElement>('mMusic').value = String(Math.round(m * 100));
     el('mMusicV').textContent = m < 0.02 ? 'Off' : `${Math.round(m * 100)}`;
@@ -478,6 +560,38 @@ export class UI {
     el('mRowV').textContent = `${Math.round(row * 100)}%`;
     el('mAway').classList.toggle('on', h.getMuteAway());
     el('mAway').setAttribute('aria-checked', String(h.getMuteAway()));
+    el('gCap').querySelectorAll<HTMLButtonElement>('button').forEach((b) => b.classList.toggle('on', Number(b.dataset.cap) === h.getFpsCap()));
+    const res = h.getResolution();
+    el<HTMLInputElement>('gRes').value = String(Math.round(res * 100));
+    el('gResV').textContent = `${Math.round(res * 100)}%`;
+    for (const [id, on] of [['gAdapt', h.getAdapt()], ['gQuiet', h.getQuietAway()], ['gFps', h.getShowFps()]] as [string, boolean][]) {
+      el(id).classList.toggle('on', on);
+      el(id).setAttribute('aria-checked', String(on));
+    }
+  }
+
+  showPlaces(v: boolean, note = '') {
+    this.placesOpen = v;
+    el('pNote').textContent = note;
+    el('places').classList.toggle('hidden', !v);
+    this.updateVeil();
+  }
+
+  placeNote(text: string) {
+    el('pNote').textContent = text;
+  }
+
+  /** The sights, and how many shells are left, or null when the gun is away. */
+  sights(shells: number | null) {
+    const box = el('sights');
+    box.classList.toggle('gone', shells === null);
+    if (shells === null) return;
+    box.querySelectorAll('#shells b').forEach((b, i) => b.classList.toggle('spent', i >= shells));
+  }
+
+  setFps(text: string | null) {
+    el('fps').classList.toggle('gone', text === null);
+    if (text !== null) el('fps').textContent = text;
   }
 
   showFriends(v: boolean) {
@@ -537,6 +651,7 @@ export class UI {
       this.refreshMenu();
       this.focusI = 0;
       el('mKeys').classList.add('gone');
+      el('mGraphics').classList.add('gone');
       el('mSettings').classList.remove('gone');
       el('mHelpT').textContent = 'Controls';
     }
@@ -585,7 +700,7 @@ export class UI {
     }
     if (ok && !(cur instanceof HTMLInputElement)) cur.click();
     if ((left || right) && cur instanceof HTMLInputElement) {
-      const stepSize = cur.id === 'timeTrack' ? 0.5 : cur.id === 'mPaint' ? 1 : 5;
+      const stepSize = cur.id === 'timeTrack' ? 0.5 : 5;
       const v = Math.min(parseFloat(cur.max), Math.max(parseFloat(cur.min), parseFloat(cur.value) + (right ? stepSize : -stepSize)));
       cur.value = String(v);
       cur.dispatchEvent(new Event('input'));

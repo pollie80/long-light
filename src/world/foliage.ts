@@ -7,6 +7,8 @@ import { COTTAGE, groundY, JETTY, PATH, pathDistance, slopeAt } from './land';
 import { L, LIT_FRAG, paintedMaterial, U } from '../render/shared';
 import grassCol from '../shaders/grasscol.glsl?raw';
 import { fbm, mulberry32, smoothstep } from '../core/noise';
+import { MAP, MAP_GLSL } from './maps';
+import { Q } from '../core/quality';
 
 // ---- Dab clouds ------------------------------------------------------------------------------------
 
@@ -160,6 +162,66 @@ function pineTree(rnd: () => number, detail: number): { cards: THREE.BufferGeome
   return { cards: sink.build(), trunk: trunk.build() };
 }
 
+function palmTree(rnd: () => number, detail: number): { cards: THREE.BufferGeometry; trunk: THREE.BufferGeometry } {
+  const H = 10.5;
+  const sink = new CardSink();
+  const trunk = new Builder(33);
+  const bark = 0x7d6a50;
+  const lean = 0.9 + rnd() * 1.1;
+  const top = new THREE.Vector3(lean, H, lean * 0.25);
+  const gc: [number, number, number] = [top.x, top.y - 0.4, top.z];
+  // A palm's trunk bows towards the light, and has a little kink low down from when it was young.
+  const pts = [new THREE.Vector3(0, -0.5, 0), new THREE.Vector3(lean * 0.12, H * 0.35, 0.05), new THREE.Vector3(lean * 0.5, H * 0.72, lean * 0.1), top];
+  if (detail > 0.5) {
+    trunk.tube(pts, 0.17, bark, {}, 12, 7);
+    trunk.cyl(0.17, 0.3, 1.6, bark, TRS(0, 0.4, 0), {}, 8);
+    for (let i = 0; i < 4; i++) trunk.sphere(0.13, 0x5c4028, TRS(top.x + Math.cos(i * 1.6) * 0.2, top.y - 0.22, top.z + Math.sin(i * 1.6) * 0.2), {}, 7, 5);
+  } else {
+    trunk.tube(pts, 0.15, bark, {}, 4, 4);
+  }
+  const fronds = 11;
+  const steps = 8;
+  for (let i = 0; i < fronds; i++) {
+    const a = (i / fronds) * Math.PI * 2 + rnd() * 0.4;
+    const len = 3.3 + rnd() * 1.1;
+    const rise = 0.5 + rnd() * 0.75;
+    for (let k = 1; k <= steps; k++) {
+      const t = k / steps;
+      const out = len * t;
+      const x = top.x + Math.cos(a) * out;
+      const z = top.z + Math.sin(a) * out;
+      const y = top.y + rise * Math.sin(t * Math.PI * 0.6) - 2.3 * t * t;
+      const w = 0.62 * (1 - t * 0.62);
+      ellipsoidCards(sink, x, y, z, w, 0.12, w, Math.max(1, Math.floor(30 * detail)), detail > 0.5 ? 0.17 : 0.72, rnd, gc);
+    }
+  }
+  return { cards: sink.build(), trunk: trunk.build() };
+}
+
+function spruceTree(rnd: () => number, detail: number): { cards: THREE.BufferGeometry; trunk: THREE.BufferGeometry } {
+  const H = 18;
+  const sink = new CardSink();
+  const gc: [number, number, number] = [0, H * 0.55, 0];
+  const trunk = new Builder(44);
+  const bark = 0x4f3a2c;
+  if (detail > 0.5) trunk.cyl(0.05, 0.38, H, bark, TRS(0, H * 0.5 - 0.4, 0), {}, 8);
+  else trunk.cyl(0.05, 0.3, H, bark, TRS(0, H * 0.5 - 0.4, 0), {}, 5);
+  // Narrow and pointed, wide skirts near the ground, the way a northern spruce sheds its snow.
+  const tiers = 12;
+  for (let i = 0; i < tiers; i++) {
+    const t = i / (tiers - 1);
+    const y = H * (0.1 + t * 0.88);
+    const R = (1 - t) * 2.5 + 0.22;
+    const lobes = t > 0.7 ? 2 : 4;
+    for (let j = 0; j < lobes; j++) {
+      const a = (j / lobes) * Math.PI * 2 + rnd() * 1.3;
+      const d = R * 0.5;
+      ellipsoidCards(sink, Math.cos(a) * d, y, Math.sin(a) * d, R * 0.62, 0.62, R * 0.62, Math.max(1, Math.floor(80 * detail)), detail > 0.5 ? 0.25 : 1.0, rnd, gc);
+    }
+  }
+  return { cards: sink.build(), trunk: trunk.build() };
+}
+
 function shrub(rnd: () => number): { cards: THREE.BufferGeometry } {
   const sink = new CardSink();
   const gc: [number, number, number] = [0, 0.55, 0];
@@ -292,10 +354,14 @@ export function makeTrees(): THREE.Group {
   const roundFar: TreeInstance[] = [];
   const shrubs: TreeInstance[] = [];
 
-  const pineLo = () => new THREE.Color().setRGB(0.012 + rnd() * 0.012, 0.055 + rnd() * 0.03, 0.05 + rnd() * 0.02);
-  const pineHi = () => new THREE.Color().setRGB(0.10 + rnd() * 0.05, 0.21 + rnd() * 0.07, 0.09 + rnd() * 0.03);
-  const roundLo = () => new THREE.Color().setRGB(0.012 + rnd() * 0.012, 0.04 + rnd() * 0.03, 0.03 + rnd() * 0.015);
-  const roundHi = () => new THREE.Color().setRGB(0.15 + rnd() * 0.12, 0.25 + rnd() * 0.1, 0.07 + rnd() * 0.04);
+  const TR = MAP.trees;
+  const pineLo = () => new THREE.Color().setRGB(TR.tallLo[0] + rnd() * 0.012, TR.tallLo[1] + rnd() * 0.03, TR.tallLo[2] + rnd() * 0.02);
+  const pineHi = () => new THREE.Color().setRGB(TR.tallHi[0][0] + rnd() * TR.tallHi[1][0], TR.tallHi[0][1] + rnd() * TR.tallHi[1][1], TR.tallHi[0][2] + rnd() * TR.tallHi[1][2]);
+  const roundLo = () => new THREE.Color().setRGB(TR.roundLo[0] + rnd() * 0.012, TR.roundLo[1] + rnd() * 0.03, TR.roundLo[2] + rnd() * 0.015);
+  const roundHi = () => {
+    const [base, spread] = TR.roundHi[Math.floor(rnd() * TR.roundHi.length)];
+    return new THREE.Color().setRGB(base[0] + rnd() * spread[0], base[1] + rnd() * spread[1], base[2] + rnd() * spread[2]);
+  };
   const shrubLo = () => new THREE.Color().setRGB(0.012, 0.04, 0.03);
   const shrubHi = () => new THREE.Color().setRGB(0.12 + rnd() * 0.08, 0.2 + rnd() * 0.06, 0.07);
 
@@ -324,13 +390,13 @@ export function makeTrees(): THREE.Group {
   const near = (x: number, z: number) => x > -20 && x < 210 && Math.abs(z) < 140;
 
   // Forests: clumps by noise, thicker further from the path, thinning along the shore.
-  const tries = 26000;
+  const tries = Math.floor(26000 * Q.trees);
   for (let i = 0; i < tries; i++) {
     const x = -420 + rnd() * 1250;
     const z = -640 + rnd() * 1280;
     if (keepClear(x, z)) continue;
     const y = groundY(x, z);
-    if (y < 2.4) continue;
+    if (y < TR.minY || y > TR.maxY) continue;
     const slope = slopeAt(x, z, 1.5);
     if (slope > 0.75) continue;
     const clump = fbm(x * 0.016, z * 0.016, 3) * 0.5 + 0.5;
@@ -338,10 +404,10 @@ export function makeTrees(): THREE.Group {
     const meadow = 1 - smoothstep(60, 150, fromCentre);
     const p = smoothstep(0.34, 0.6, clump) * (1 - meadow * 0.93);
     if (rnd() > p) continue;
-    const pine = rnd() < 0.42 + fbm(x * 0.004, z * 0.004, 2) * 0.5;
+    const pine = y < TR.tallBelowY && rnd() < TR.tallShare + fbm(x * 0.004, z * 0.004, 2) * 0.5;
     const s = 0.65 + rnd() * 0.75;
     const inst: TreeInstance = { x, z, y: y - 0.2, s, rot: rnd() * 6.28, lo: pine ? pineLo() : roundLo(), hi: pine ? pineHi() : roundHi() };
-    if (near(x, z) && (pine ? pinesNear.length : roundNear.length) < 110) (pine ? pinesNear : roundNear).push(inst);
+    if (near(x, z) && (pine ? pinesNear.length : roundNear.length) < Q.nearTrees) (pine ? pinesNear : roundNear).push(inst);
     else (pine ? pinesFar : roundFar).push(inst);
   }
 
@@ -358,8 +424,9 @@ export function makeTrees(): THREE.Group {
   }
 
   const treeRnd = mulberry32(99);
-  const pineHiGeo = pineTree(treeRnd, 1);
-  const pineLoGeo = pineTree(treeRnd, 0.07);
+  const tallTree = TR.tall === 'palm' ? palmTree : TR.tall === 'spruce' ? spruceTree : pineTree;
+  const pineHiGeo = tallTree(treeRnd, 1);
+  const pineLoGeo = tallTree(treeRnd, 0.07);
   const roundHiGeo = roundTree(treeRnd, 1);
   const roundLoGeo = roundTree(treeRnd, 0.07);
   const shrubGeo = shrub(treeRnd);
@@ -404,7 +471,7 @@ const GRASS_VERT = /* glsl */ `
   varying float vT;
   varying vec3 vBase;
   varying vec3 vTipCol;
-  ${grassCol}
+  ${MAP_GLSL}${grassCol}
   void main() {
     float t = position.y;
     vec3 base = aBase.xyz;
@@ -580,7 +647,7 @@ export function makeGrass(): THREE.Group {
     [0.86, 0.82, 0.68], [0.95, 0.72, 0.12], [0.72, 0.13, 0.11], [0.42, 0.28, 0.72], [0.9, 0.42, 0.55],
   ];
 
-  const total = 1500000;
+  const total = Math.floor(1500000 * Q.grass);
   for (let i = 0; i < total; i++) {
     let x: number;
     let z: number;
@@ -628,7 +695,7 @@ export function makeGrass(): THREE.Group {
 
   // Reeds stand in the shallows either side of the beach. They reflect, and they catch the low sun.
   const reeds: Blade[] = [];
-  for (let i = 0; i < 90000; i++) {
+  for (let i = 0; i < 90000 * Math.max(Q.grass, 0.35); i++) {
     const x = -150 + rnd() * 240;
     const z = -240 + rnd() * 480;
     if (Math.abs(z) < 14 && x < JETTY.startX) continue;

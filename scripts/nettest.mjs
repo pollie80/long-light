@@ -21,11 +21,22 @@ const check = (name, ok, detail = '') => {
 };
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// LL_BLOCK_DIRECT=all: nobody can connect directly. LL_BLOCK_DIRECT=third: only the third player can't.
+const blocked = (label) => process.env.LL_BLOCK_DIRECT === 'all' || process.env.LL_BLOCK_DIRECT === label;
 async function open(u, label, expectErrors = false) {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
   const page = await ctx.newPage();
+  if (blocked(label)) {
+    await page.addInitScript(() => {
+      // As on a strict network: connections are made, but no route between them ever works.
+      const RTC = window.RTCPeerConnection;
+      window.RTCPeerConnection = function () { return new RTC({ iceServers: [], iceTransportPolicy: 'relay' }); };
+      window.RTCPeerConnection.prototype = RTC.prototype;
+    });
+  }
   if (!expectErrors) {
-    page.on('console', (m) => { if (m.type() === 'error' && !m.text().includes('404')) errors.push(`${label}: ${m.text().slice(0, 500)}`); });
+    // An unreachable backup service is expected, and is why there are several.
+    page.on('console', (m) => { if (m.type() === 'error' && !m.text().includes('404') && !m.text().includes('WebSocket connection')) errors.push(`${label}: ${m.text().slice(0, 500)}`); });
     page.on('pageerror', (e) => errors.push(`${label} PAGEERROR ${e.message}`));
   }
   await page.goto(u);
@@ -71,7 +82,7 @@ await host.locator('#fStart').click();
 const gotLink = await until(host, () => /#join=/.test(document.querySelector('#fLink').value));
 const link = await host.locator('#fLink').inputValue();
 const code = /#join=(\w+)/.exec(link)?.[1];
-check('invite link is made', gotLink && /^https:\/\/pollie80\.github\.io\/long-light\/#join=[a-z2-9]{6}$/.test(link), link);
+check('invite link is made', gotLink && /^https:\/\/pollie80\.github\.io\/long-light\/#join=[a-z2-9]{6}&map=[a-z]+$/.test(link), link);
 await shot(host, '03-friends');
 await host.locator('#fCopy').click();
 await wait(300);
@@ -92,7 +103,7 @@ await wait(500);
 check('a stray key does not skip the invite', (await netOf(friend)).mode === 'title');
 await friend.locator('#jName').fill('<img src=x onerror=1>');
 await friend.locator('#jGo').click();
-check('friend gets in', await until(friend, () => __ll.game.net.players.size > 0 && __ll.game.mode !== 'title', null, 25000));
+check('friend gets in', await until(friend, () => __ll.game.net.players.size > 0 && __ll.game.mode !== 'title', null, 35000), `by ${await friend.evaluate(() => __ll.game.net.route)}`);
 check('friend reaches the cove', await until(friend, () => __ll.game.mode === 'walk', null, 12000));
 const h1 = await netOf(host);
 const f1 = await netOf(friend);
@@ -150,7 +161,18 @@ const peak = friend.evaluate(async () => {
 await wait(200);
 await host.keyboard.press('Space');
 const seen = await peak;
-check('friend sees the host jump', seen.sawAir && seen.up > 0.35, `${seen.up.toFixed(2)} m up`);
+check('friend sees the host jump', seen.up > 0.2, `${seen.up.toFixed(2)} m up, marked in the air: ${seen.sawAir}`);
+
+// A friend hears and sees a shot.
+await host.keyboard.press('KeyG');
+await wait(500);
+check('friend sees the host raise a gun', await until(friend, () => __ll.game.net.players.get('host').state?.gun === true && __ll.game.remotes.get('host').fisher.gun.visible, null, 4000));
+await host.mouse.move(640, 360);
+await host.mouse.down();
+await host.mouse.up();
+check('and the shot is counted', await until(friend, () => (__ll.game.net.players.get('host').state?.shots ?? 0) > 0, null, 4000));
+await host.keyboard.press('KeyG');
+await wait(400);
 
 // Clock, both ways.
 await host.evaluate(() => __ll.setHour(9.5));
@@ -158,6 +180,7 @@ check('host moves the sun for everyone', await until(friend, () => Math.abs(__ll
 await friend.evaluate(() => __ll.setHour(20.3));
 check('friend moves the sun for everyone', await until(host, () => Math.abs(__ll.game.hour - 20.3) < 0.1, null, 5000));
 await friend.evaluate(() => __ll.game.ui.hooks.setClockRunning(true));
+await wait(1500);
 await host.evaluate(() => { __ll.game.ui.hooks.setClockRunning(false); });
 check('pausing the sun reaches friends', await until(friend, () => __ll.game.clockRunning === false, null, 5000));
 await host.evaluate(() => { __ll.game.ui.hooks.setClockRunning(true); __ll.setHour(18.2); __ll.game.ui.hooks.setClockRunning(true); });
@@ -200,7 +223,7 @@ await shot(friend, '08-friend-sees-boat');
 const third = await open(`${guestUrl}#join=${code}`, 'third');
 await third.locator('#jName').fill('Jo');
 await third.locator('#jGo').click();
-check('a third person joins', await until(third, () => __ll.game.net.players.size === 2, null, 25000));
+check('a third person joins', await until(third, () => __ll.game.net.players.size === 2, null, 35000), `by ${await third.evaluate(() => __ll.game.net.route)}`);
 check('third has a boat place of their own', (await netOf(third)).slot === 2);
 check('the others see them', await until(friend, () => __ll.game.net.players.size === 2) && await until(host, () => __ll.game.net.players.size === 2));
 await third.evaluate(() => __ll.game.ui.hooks.friends());

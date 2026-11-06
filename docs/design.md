@@ -47,3 +47,11 @@ demands effort. They should never have to code or do anything manual.
 One player hosts and everyone else connects to them over WebRTC (PeerJS, with its public service for the introductions). The host passes each player's state on to the others 15 times a second and owns the clock, so everyone shares one sky. Nothing is simulated twice: a friend's fisher and boat are puppets driven by what they send. All incoming data is cleaned in `src/net/protocol.ts` before the game uses it.
 
 A window that is covered or minimised stops drawing, so a one-second timer keeps the clock and the connection going until it comes back.
+
+A direct connection gets 8 seconds. After that a guest switches to `src/net/relay.ts`: the same messages, sealed with AES-GCM under a key derived from the invite code, over public MQTT brokers. They throttle at about 11 messages a second, so state goes at 5 a second and only when it has changed, with a small reliable layer for the messages that can't be lost.
+
+## Maps and quality
+
+`src/world/maps.ts` and `src/core/quality.ts` are read once, before the world is built, so changing either reloads the game. An invite link names its map, because everyone in a cove has to be standing in the same world.
+
+The paint filter was removed: the player always had it off, and it cost several full-screen passes a frame.

@@ -1,17 +1,11 @@
 // Frame order: shadows, reflection, opaque scene, transparents, god rays, bloom, grade, paint, canvas.
 import * as THREE from 'three';
+import { Q } from '../core/quality';
 import { fsMat, fsq } from './fsq';
 import { L, U } from './shared';
 import { Look } from '../core/time';
 import gradeFrag from '../shaders/grade.glsl?raw';
-import tensorFrag from '../shaders/tensor.glsl?raw';
-import kuwaharaFrag from '../shaders/kuwahara.glsl?raw';
 import canvasFrag from '../shaders/canvas.glsl?raw';
-
-export interface PaintSettings {
-  radius: number; // Kuwahara kernel radius at 1440p
-  strength: number; // 0 turns the paint filter off
-}
 
 const hdr = (w: number, h: number, extra: Partial<THREE.RenderTargetOptions> = {}) =>
   new THREE.WebGLRenderTarget(w, h, {
@@ -35,25 +29,20 @@ export class Pipeline {
   private bloomUp: THREE.WebGLRenderTarget[] = [];
   private rays!: THREE.WebGLRenderTarget;
   private ldr!: THREE.WebGLRenderTarget;
-  private tensorA!: THREE.WebGLRenderTarget;
-  private tensorB!: THREE.WebGLRenderTarget;
-  private painted!: THREE.WebGLRenderTarget;
 
   private copyDepth: THREE.ShaderMaterial;
   private downMat: THREE.ShaderMaterial;
   private upMat: THREE.ShaderMaterial;
   private raysMat: THREE.ShaderMaterial;
   private gradeMat: THREE.ShaderMaterial;
-  private tensorMat: THREE.ShaderMaterial;
-  private blurMat: THREE.ShaderMaterial;
-  private kuwMat: THREE.ShaderMaterial;
   private canvasMat: THREE.ShaderMaterial;
   /** Thin things such as the fishing line, drawn after the paint filter so they stay crisp. */
   late = new THREE.Scene();
   mirror = new THREE.PerspectiveCamera();
   reflectVP = new THREE.Matrix4();
-  settings: PaintSettings = { radius: 6, strength: 1 };
-  renderScale = 1;
+  renderScale = Q.renderScale;
+  private frameN = 0;
+  private raysClear = false;
   /** Dev profiling: blocks on the GPU between passes to time them. */
   profiling = false;
   marks: Record<string, number> = {};
@@ -68,7 +57,6 @@ export class Pipeline {
     this.marks[name] = (this.marks[name] ?? 0) * 0.8 + (t - this.lastMark) * 0.2;
     this.lastMark = t;
   }
-  private paintScale = 0.82;
 
   constructor(private r: THREE.WebGLRenderer) {
     this.copyDepth = fsMat(
@@ -171,36 +159,9 @@ export class Pipeline {
       uShadowTint: U.uShadowTint,
       uNight: { value: 0 },
     });
-    this.tensorMat = fsMat(tensorFrag, { t: { value: null }, px: { value: new THREE.Vector2() } });
-    this.blurMat = fsMat(
-      /* glsl */ `
-      varying vec2 vUv;
-      uniform sampler2D t;
-      uniform vec2 dir;
-      void main() {
-        vec4 s = texture2D(t, vUv) * 0.1964825;
-        s += (texture2D(t, vUv + dir * 1.411764706) + texture2D(t, vUv - dir * 1.411764706)) * 0.2969069;
-        s += (texture2D(t, vUv + dir * 3.294117647) + texture2D(t, vUv - dir * 3.294117647)) * 0.0944703;
-        s += (texture2D(t, vUv + dir * 5.176470588) + texture2D(t, vUv - dir * 5.176470588)) * 0.0103814;
-        gl_FragColor = s;
-      }`,
-      { t: { value: null }, dir: { value: new THREE.Vector2() } },
-    );
-    this.kuwMat = fsMat(kuwaharaFrag, {
-      t: { value: null },
-      tfm: { value: null },
-      depth: { value: null },
-      px: { value: new THREE.Vector2() },
-      uRadius: { value: 6 },
-      uNear: { value: 0.3 },
-      uFar: { value: 12000 },
-    });
     this.canvasMat = fsMat(canvasFrag, {
       t: { value: null },
-      tfm: { value: null },
       noise: U.uNoise,
-      px: { value: new THREE.Vector2() },
-      uStrength: { value: 1 },
       uVignette: { value: 0.32 },
       uFade: { value: 0 },
       uTime: U.uTime,
@@ -222,24 +183,21 @@ export class Pipeline {
     if (w === this.w && h === this.h) return;
     this.w = w;
     this.h = h;
-    for (const t of [this.opaque, this.full, this.reflect, this.rays, this.ldr, this.tensorA, this.tensorB, this.painted, ...this.bloomDown, ...this.bloomUp]) t?.dispose();
+    for (const t of [this.opaque, this.full, this.reflect, this.rays, this.ldr, ...this.bloomDown, ...this.bloomUp]) t?.dispose();
     this.opaque = hdr(w, h, {
-      samples: 2,
+      samples: Q.msaa,
       depthBuffer: true,
       depthTexture: new THREE.DepthTexture(w, h, THREE.FloatType),
     });
     this.full = hdr(w, h, { depthBuffer: true, depthTexture: new THREE.DepthTexture(w, h, THREE.FloatType) });
-    this.reflect = hdr(Math.floor(w * 0.5), Math.floor(h * 0.5), { depthBuffer: true, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
+    this.reflect = hdr(Math.floor(w * Q.reflectScale), Math.floor(h * Q.reflectScale), { depthBuffer: true, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
     this.rays = hdr(Math.floor(w / 2), Math.floor(h / 2));
     this.ldr = hdr(w, h);
-    this.tensorA = hdr(w, h);
-    this.tensorB = hdr(w, h);
-    this.painted = hdr(Math.floor(w * this.paintScale), Math.floor(h * this.paintScale));
     this.bloomDown = [];
     this.bloomUp = [];
     let bw = w;
     let bh = h;
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < Q.bloomLevels; i++) {
       bw = Math.max(2, Math.floor(bw / 2));
       bh = Math.max(2, Math.floor(bh / 2));
       this.bloomDown.push(hdr(bw, bh));
@@ -275,16 +233,19 @@ export class Pipeline {
     cam.updateMatrixWorld();
 
     this.mark('before');
-    // Reflection
-    this.updateMirror(cam);
-    U.uClip.value = 1;
-    this.mirror.layers.set(L.OPAQUE);
-    this.mirror.layers.enable(L.REFLECT_ONLY);
-    r.setRenderTarget(this.reflect);
+    // Reflection. It can be a frame or two old without anyone seeing, which on lower settings saves a whole scene.
     r.setClearColor(0x000000, 1);
-    r.clear(true, true, true);
-    r.render(scene, this.mirror);
-    U.uClip.value = 0;
+    if (this.frameN % Q.reflectEvery === 0) {
+      this.updateMirror(cam);
+      U.uClip.value = 1;
+      this.mirror.layers.set(L.OPAQUE);
+      this.mirror.layers.enable(L.REFLECT_ONLY);
+      r.setRenderTarget(this.reflect);
+      r.clear(true, true, true);
+      r.render(scene, this.mirror);
+      U.uClip.value = 0;
+    }
+    this.frameN += 1;
     this.mark('reflect');
 
     // Opaque
@@ -316,7 +277,15 @@ export class Pipeline {
     ru.sun.value.set(sunNdc.x * 0.5 + 0.5, sunNdc.y * 0.5 + 0.5);
     ru.amt.value = look.rays * onScreenness * (sunWorld.y > -0.05 ? 1 : 0);
     ru.aspect.value = this.w / this.h;
-    fsq(r, this.raysMat, this.rays);
+    // No sun in view, no rays: an empty image only has to be cleared once.
+    if (ru.amt.value > 0.002) {
+      fsq(r, this.raysMat, this.rays);
+      this.raysClear = false;
+    } else if (!this.raysClear) {
+      r.setRenderTarget(this.rays);
+      r.clear(true, false, false);
+      this.raysClear = true;
+    }
 
     this.mark('rays');
     // Bloom
@@ -357,47 +326,12 @@ export class Pipeline {
     fsq(r, this.gradeMat, this.ldr);
 
     this.mark('grade');
-    // Structure tensor: which way each brush stroke should run.
-    const t = this.tensorMat.uniforms;
-    t.t.value = this.ldr.texture;
-    t.px.value.set(1 / this.w, 1 / this.h);
-    fsq(r, this.tensorMat, this.tensorA);
-    const b = this.blurMat.uniforms;
-    b.t.value = this.tensorA.texture;
-    b.dir.value.set(1 / this.w, 0);
-    fsq(r, this.blurMat, this.tensorB);
-    b.t.value = this.tensorB.texture;
-    b.dir.value.set(0, 1 / this.h);
-    fsq(r, this.blurMat, this.tensorA);
-
-    this.mark('tensor');
-    // Paint
-    const k = this.kuwMat.uniforms;
-    k.t.value = this.ldr.texture;
-    k.tfm.value = this.tensorA.texture;
-    k.depth.value = this.opaque.depthTexture;
-    // The paint runs at reduced resolution and the canvas pass restores fine texture on top.
-    k.px.value.set(1 / this.painted.width, 1 / this.painted.height);
-    k.uRadius.value = this.settings.radius * (this.painted.height / 1440);
-    k.uNear.value = cam.near;
-    k.uFar.value = cam.far;
-    let finalTex: THREE.Texture = this.ldr.texture;
-    if (this.settings.strength > 0.01) {
-      fsq(r, this.kuwMat, this.painted);
-      finalTex = this.painted.texture;
-    }
-
-    this.mark('kuwahara');
-    // Canvas
-    const c = this.canvasMat.uniforms;
-    c.t.value = finalTex;
-    c.tfm.value = this.tensorA.texture;
-    c.px.value.set(1 / this.w, 1 / this.h);
-    c.uStrength.value = this.settings.strength;
+    // Last touches, and on to the screen.
+    this.canvasMat.uniforms.t.value = this.ldr.texture;
     fsq(r, this.canvasMat, null);
     this.mark('canvas');
 
-    // Thin things go on last, so the paint filter cannot erase them.
+    // Thin things go on last, so they stay crisp.
     const lateCam = cam.layers.mask;
     cam.layers.enableAll();
     r.setRenderTarget(null);

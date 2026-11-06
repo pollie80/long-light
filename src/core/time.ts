@@ -1,4 +1,5 @@
 // The clock and the art direction of the day. Pure data and maths, no three.js.
+import { MAP } from '../world/maps';
 
 export type V3 = [number, number, number];
 
@@ -81,6 +82,9 @@ export function clockLabel(h: number): string {
 
 // ---- Palette ---------------------------------------------------------------------------------
 
+const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+const tint = (c: V3, k: [number, number, number]): V3 => [c[0] * k[0], c[1] * k[1], c[2] * k[2]];
+
 export interface Look {
   keyCol: V3; // sun or moon colour (linear)
   keyI: number; // key light strength
@@ -157,14 +161,14 @@ export function lookAt(hour: number): Look {
     amb: n(a.amb, b.amb),
     shadow: mix3(a.shadow, b.shadow, t),
     bounce: mix3(a.bounce, b.bounce, t),
-    fog: n(a.fog, b.fog),
-    mist: n(a.mist, b.mist),
-    waterScatter: mix3(a.waterScatter, b.waterScatter, t),
+    fog: n(a.fog, b.fog) * MAP.mood.fog,
+    mist: n(a.mist, b.mist) * MAP.mood.mist,
+    waterScatter: tint(mix3(a.waterScatter, b.waterScatter, t), MAP.water.scatter),
     bloom: n(a.bloom, b.bloom),
     rays: n(a.rays, b.rays),
     exposure: n(a.exposure, b.exposure),
-    sat: n(a.sat, b.sat),
-    warmth: n(a.warmth, b.warmth),
+    sat: n(a.sat, b.sat) * MAP.mood.sat,
+    warmth: n(a.warmth, b.warmth) * MAP.mood.warmth,
     cloudTop: mix3(a.cloudTop, b.cloudTop, t),
     cloudBot: mix3(a.cloudBot, b.cloudBot, t),
     night: n(a.night, b.night),
@@ -204,7 +208,8 @@ export function skyMoodAt(hour: number): SkyMood {
   const b = SKY_KEYS[i + 1];
   const t = (h - a[0]) / (b[0] - a[0]);
   const m = (j: number) => a[j] + (b[j] - a[j]) * t;
-  return { intensity: m(1), cover: m(2), cirrus: m(3), alto: m(4) };
+  const mood = MAP.mood;
+  return { intensity: m(1), cover: clamp01(m(2) + mood.cover), cirrus: clamp01(m(3) + mood.cirrus), alto: clamp01(m(4) + mood.alto) };
 }
 
 /** The sun lights the world until just after sunset; then the moon takes over while key light is near zero. */

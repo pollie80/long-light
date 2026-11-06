@@ -102,7 +102,7 @@ kbd { font-family: var(--serif); font-style: normal; font-weight: 500; font-size
 .status.bad { color: #a02a1c; }
 
 /* Title buttons */
-.titleBtns { position: absolute; left: 50%; bottom: 7vh; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; white-space: nowrap; text-shadow: none; }
+.titleBtns { position: absolute; left: 50%; bottom: 7vh; transform: translateX(-50%); display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 10px; width: min(96vw, 1180px); text-shadow: none; }
 #title.hidden .titleBtns { display: none; }
 .joinCard { width: min(470px, 90vw); padding: 20px 26px 18px; border-radius: 4px; text-align: left; white-space: normal; color: var(--ink); }
 .joinCard h3 { font-weight: 500; font-size: 27px; margin: 0 0 8px; }
@@ -112,9 +112,9 @@ kbd { font-family: var(--serif); font-style: normal; font-weight: 500; font-size
 
 /* Menu */
 #menu { position: fixed; left: 4vw; top: 50%; transform: translateY(-50%); width: min(540px, 46vw); padding: 20px 24px 12px; border-radius: 5px; transition: opacity 0.3s ease; max-height: 94vh; overflow: auto; }
-.tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 8px; }
-.tile { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 11px 4px 8px; background: rgba(255, 252, 240, 0.55); border: 1px solid rgba(42, 31, 28, 0.17); border-radius: 8px; font: 500 18px var(--serif); color: var(--ink); cursor: pointer; transition: background 0.15s ease, transform 0.15s ease, color 0.15s ease; }
-.tile .ic { width: 30px; height: 30px; }
+.tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 6px; }
+.tile { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 7px 2px 5px; background: rgba(255, 252, 240, 0.55); border: 1px solid rgba(42, 31, 28, 0.17); border-radius: 8px; font: 500 18px var(--serif); color: var(--ink); cursor: pointer; transition: background 0.15s ease, transform 0.15s ease, color 0.15s ease; }
+.tile .ic { width: 25px; height: 25px; }
 .tile:hover, .tile.focus { background: #9c3f24; color: var(--light); border-color: #9c3f24; transform: translateY(-1px); }
 .tile.primary { background: #9c3f24; color: var(--light); border-color: #9c3f24; }
 .tile.primary:hover, .tile.primary.focus { background: #b64c2c; }
@@ -141,6 +141,29 @@ kbd { font-family: var(--serif); font-style: normal; font-weight: 500; font-size
 .keyRow { display: grid; grid-template-columns: 46% 1fr; align-items: center; font-size: 19px; padding: 2px 5px; }
 .keyRow kbd { border-color: rgba(42, 31, 28, 0.42); background: rgba(255, 252, 240, 0.6); margin: 0 0.12em; }
 .mFoot { display: flex; justify-content: space-between; flex-wrap: wrap; margin-top: 10px; padding-top: 6px; border-top: 1px solid rgba(42, 31, 28, 0.2); }
+
+/* Places and graphics */
+#places { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(980px, 94vw); max-height: 92vh; overflow: auto; padding: 22px 28px 12px; border-radius: 5px; transition: opacity 0.3s ease; }
+#places h2 { font-weight: 500; font-size: 32px; margin: 0 0 12px; }
+.placeCards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.placeCard { display: flex; flex-direction: column; text-align: left; gap: 3px; padding: 8px 8px 10px; background: rgba(255, 252, 240, 0.55); border: 1px solid rgba(42, 31, 28, 0.2); border-radius: 8px; cursor: pointer; color: var(--ink); font: 400 17px/1.25 var(--serif); transition: transform 0.15s ease, border-color 0.15s ease; }
+.placeCard:hover { transform: translateY(-2px); border-color: #9c3f24; }
+.placeCard.here { border: 2px solid #2f7d80; }
+.placeCard img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 5px; display: block; margin-bottom: 4px; }
+.placeCard b { font-weight: 500; font-size: 22px; }
+.placeCard i { font-size: 16px; color: #2f7d80; min-height: 20px; }
+.pills { display: flex; gap: 6px; padding: 3px 0 5px; }
+.pills button { flex: 1; font: 500 18px var(--serif); padding: 5px 2px; background: rgba(255, 252, 240, 0.55); border: 1px solid rgba(42, 31, 28, 0.2); border-radius: 6px; cursor: pointer; color: var(--ink); }
+.pills button:hover { border-color: #9c3f24; }
+.pills button.on { background: #9c3f24; border-color: #9c3f24; color: var(--light); }
+#menu h4 small { text-transform: none; letter-spacing: 0; font-size: 14px; }
+#sights { position: fixed; inset: 0; pointer-events: none; }
+#sights i { position: absolute; left: 50%; top: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px; border: 1.5px solid rgba(255, 246, 224, 0.75); border-radius: 50%; box-shadow: 0 0 3px rgba(20, 8, 16, 0.7); }
+#sights i::after { content: ''; position: absolute; left: 50%; top: 50%; width: 3px; height: 3px; margin: -1.5px 0 0 -1.5px; border-radius: 50%; background: #fff6e0; }
+#shells { position: absolute; left: 50%; bottom: 8vh; transform: translateX(-50%); display: flex; gap: 8px; }
+#shells b { width: 11px; height: 26px; border-radius: 3px 3px 2px 2px; background: linear-gradient(#c23a2c 70%, #d9b04a 70%); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6); }
+#shells b.spent { opacity: 0.25; }
+#fps { position: fixed; right: 12px; top: 8px; font: 500 16px var(--serif); color: #fff6e0; text-shadow: 0 1px 4px #000; }
 
 /* Friends */
 #friends { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(540px, 90vw); max-height: 92vh; overflow: auto; padding: 22px 28px 12px; border-radius: 5px; transition: opacity 0.3s ease; }

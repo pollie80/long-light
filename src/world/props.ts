@@ -2,15 +2,16 @@
 import * as THREE from 'three';
 import { Builder, solid, TRS } from './builder';
 import { BOAT_MOOR, COTTAGE, DECK_Y, groundY, ISLETS, JETTY, pathPoint, PATH_LENGTH } from './land';
+import { MAP } from './maps';
 import { L, LIT_FRAG, paintedMaterial, U } from '../render/shared';
 import { SPECIMEN_BENCH_TREE } from './foliage';
 
-const WOOD_DARK = 0x4a3428;
-const WOOD = 0x7a5a42;
-const WOOD_PALE = 0xa98a68;
+const WOOD_DARK = MAP.props.woodDark;
+const WOOD = MAP.props.wood;
+const WOOD_PALE = MAP.props.woodPale;
 const STONE = 0x8a8078;
-const PLASTER = 0xeadcc2;
-const SHINGLE = 0xa2583c;
+const PLASTER = MAP.props.wall;
+const SHINGLE = MAP.props.roof;
 const IRON = 0x2a2a30;
 
 export interface LampSpot { x: number; y: number; z: number; strength: number }
@@ -451,11 +452,11 @@ function buildLighthouse(b: Builder): THREE.Vector3 {
   const z = i.z - 18;
   const y = groundY(x, z);
   const H = 15;
-  b.lathe([[1.9, 0], [1.75, 0.6], [1.35, H], [1.5, H + 0.1], [1.5, H + 0.25], [0, H + 0.25]], 0xefe7d6, TRS(x, y - 0.5, z), { jit: 0.05 }, 18);
+  b.lathe([[1.9, 0], [1.75, 0.6], [1.35, H], [1.5, H + 0.1], [1.5, H + 0.25], [0, H + 0.25]], MAP.props.lighthouse, TRS(x, y - 0.5, z), { jit: 0.05 }, 18);
   for (const h of [4.4, 9.2]) {
     const t = h / H;
     const r = 1.75 + (1.35 - 1.75) * t;
-    b.cyl(r - 0.1, r, 1.6, 0xb5392e, TRS(x, y - 0.5 + h, z), {}, 18);
+    b.cyl(r - 0.1, r, 1.6, MAP.props.band, TRS(x, y - 0.5 + h, z), {}, 18);
   }
   b.cyl(0.85, 0.95, 1.5, 0xfff2c8, TRS(x, y - 0.5 + H + 1.0, z), { emis: 1 }, 12);
   for (let k = 0; k < 8; k++) {
@@ -467,6 +468,44 @@ function buildLighthouse(b: Builder): THREE.Vector3 {
   return new THREE.Vector3(x, y - 0.5 + H + 1.1, z);
 }
 
+/** A few things that only belong in one place. */
+function buildPlaceKit(b: Builder) {
+  const at = (x: number, z: number) => groundY(x, z);
+  if (MAP.props.kit === 'bangka') {
+    // A bangka drawn up on the sand, floats and all.
+    const x = 36;
+    const z = 22;
+    const y = at(x, z) + 0.22;
+    const rot = 1.25;
+    const P = (dx: number, dy: number, dz: number, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) => {
+      const c = Math.cos(rot);
+      const s = Math.sin(rot);
+      return TRS(x + dx * c + dz * s, y + dy, z - dx * s + dz * c, rx, rot + ry, rz, sx, sy, sz);
+    };
+    b.sphere(1, 0xf0ece0, P(0, 0.2, 0, 0, 0, 0, 0.5, 0.42, 3.1), { jit: 0.03 });
+    b.sphere(1, 0x2f62b8, P(0, 0.42, 0, 0, 0, 0, 0.52, 0.16, 3.05), { jit: 0.03 });
+    b.box(0.74, 0.1, 4.6, 0x8a6c44, P(0, 0.6, 0), { jit: 0.1 }, 0.02);
+    for (const dz of [-1.5, 1.5]) b.cyl(0.05, 0.05, 5, 0xc9b878, P(0, 0.72, dz, 0, 0, Math.PI / 2), {}, 7);
+    for (const side of [-1, 1]) b.cyl(0.09, 0.09, 4.2, 0xc9b878, P(side * 2.4, 0.15, 0, Math.PI / 2, 0, 0), {}, 8);
+  } else if (MAP.props.kit === 'canoe') {
+    // A red canoe upturned on the shore, and a stone figure of the kind left to mark the way.
+    const x = 34;
+    const z = 20;
+    const y = at(x, z) + 0.28;
+    b.sphere(1, 0xa83226, TRS(x, y, z, 0, 1.2, 0, 0.42, 0.34, 2.5), { jit: 0.03 });
+    for (const dz of [-0.9, 0.9]) b.box(0.06, 0.06, 0.8, 0x7a5a42, TRS(x + Math.sin(1.2) * dz, y - 0.28, z + Math.cos(1.2) * dz, 0, 1.2 + Math.PI / 2, 0), {}, 0.01);
+    const sx = 30;
+    const sz = -16;
+    const sy = at(sx, sz);
+    const stone = 0x8c8a86;
+    for (const dx of [-0.32, 0.32]) b.box(0.3, 0.7, 0.34, stone, TRS(sx + dx, sy + 0.35, sz), { jit: 0.1 }, 0.08);
+    b.box(1.2, 0.26, 0.42, stone, TRS(sx, sy + 0.82, sz), { jit: 0.1 }, 0.08);
+    b.box(0.46, 0.5, 0.36, stone, TRS(sx, sy + 1.2, sz), { jit: 0.1 }, 0.08);
+    b.box(1.5, 0.2, 0.34, stone, TRS(sx, sy + 1.55, sz), { jit: 0.1 }, 0.06);
+    b.box(0.4, 0.42, 0.34, stone, TRS(sx, sy + 1.86, sz), { jit: 0.1 }, 0.1);
+  }
+}
+
 export function makeProps(): PropWorld {
   const group = new THREE.Group();
 
@@ -476,6 +515,7 @@ export function makeProps(): PropWorld {
   const pathKit = buildPathKit(b);
   const jettyLamps = buildJetty(b);
   const lighthouseLamp = buildLighthouse(b);
+  buildPlaceKit(b);
 
   const glowMat = paintedMaterial();
   const mesh = solid(b.build(), glowMat);

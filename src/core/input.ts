@@ -187,6 +187,8 @@ export class Input {
       edge(9, 'PadOptions');
       edge(10, 'PadL3');
       edge(4, 'PadL1');
+      edge(5, 'PadR1');
+      edge(7, 'PadR2');
       edge(8, 'PadShare');
       if (b(0) || b(7)) this.padAction = true;
       if (b(10)) this.jog = true;

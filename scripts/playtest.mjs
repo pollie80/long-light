@@ -110,6 +110,88 @@ check('walking speed setting works', w200 / w100 > 1.6 && w200 / w100 < 2.4, `${
 check('speed setting is saved', await page.evaluate(() => JSON.parse(localStorage.getItem('longlight.save.v1')).walkSpeed === 2));
 await page.evaluate(() => __ll.game.ui.hooks.setWalkSpeed(1));
 
+// The shotgun.
+await page.evaluate(() => __ll.place(-12, 0, 1.57));
+await wait(400);
+await page.keyboard.press('KeyG');
+await wait(500);
+check('G brings out the gun', await page.evaluate(() => __ll.game.gunOut && __ll.game.fisher.gun.visible && !__ll.game.fisher.rod.visible));
+check('with sights on screen', await page.locator('#sights').isVisible());
+await shot('gun-out');
+// Put a bird straight down the sights, as a flock would pass.
+const shootOne = async () => {
+  await page.evaluate(() => {
+    const g = __ll.game;
+    g.pitch = -0.5;
+    g.hunt.nextFlock = 0;
+  });
+  await wait(250);
+  await page.evaluate(() => {
+    const g = __ll.game;
+    const dir = g.shotDir();
+    const birds = g.hunt.birds.filter((b) => b.alive);
+    const b = birds[0] ?? g.hunt.birds[0];
+    b.active = true;
+    b.alive = true;
+    b.dead = false;
+    b.root.visible = true;
+    b.vel.set(0, 0, 0);
+    b.root.position.copy(g.camera.position).addScaledVector(dir, 30);
+  });
+  await page.mouse.move(640, 360);
+  await page.mouse.down();
+  await page.mouse.up();
+  await wait(150);
+};
+const birds0 = await page.evaluate(() => Object.values(__ll.game.save.birds).reduce((a, b) => a + b, 0));
+await shootOne();
+const birds1 = await page.evaluate(() => Object.values(__ll.game.save.birds).reduce((a, b) => a + b, 0));
+check('a shot brings a bird down', birds1 > birds0, `${birds0} then ${birds1}`);
+check('and uses a shell', (await page.evaluate(() => __ll.game.shells)) === 1);
+await shot('gun-fired');
+await shootOne();
+check('two shots empty the gun', (await page.evaluate(() => __ll.game.shells)) === 0);
+await wait(1400);
+check('then it reloads', (await page.evaluate(() => __ll.game.shells)) === 2);
+await page.evaluate(() => { __ll.game.pitch = 0; });
+await page.keyboard.press('KeyG');
+await wait(400);
+check('G puts it away', await page.evaluate(() => !__ll.game.gunOut && !__ll.game.fisher.gun.visible));
+await page.keyboard.down('Space');
+await wait(500);
+check('and casting works again', (await s()).fish === 'charge');
+await page.keyboard.up('Space');
+await wait(200);
+await page.evaluate(() => __ll.game.fishing.reelIn());
+await wait(200);
+
+// The pet keeps up, on land and on the jetty.
+const petGap = () => page.evaluate(() => __ll.game.pet.worldPos().distanceTo(__ll.game.fisher.root.position));
+check('a pet is there', await page.evaluate(() => __ll.game.pet.exists));
+await page.evaluate(() => { __ll.place(10, 0, 1.57); __ll.game.yaw = 1.57; });
+await wait(600);
+await page.keyboard.down('KeyW');
+await wait(2500);
+await page.keyboard.up('KeyW');
+await wait(1500);
+const gap = await petGap();
+check('the pet follows along the jetty', gap < 3, `${gap.toFixed(1)} m behind`);
+await shot('pet-jetty');
+const petY = await page.evaluate(() => __ll.game.pet.worldPos().y);
+check('and stands on the deck', petY > 1.3 && petY < 2.2, String(petY));
+for (const kind of ['cat', 'parrot', 'duck', 'capybara', 'turtle', 'dragon', 'rock', 'dog']) {
+  await page.evaluate((v) => __ll.game.ui.wardrobe.hooks.set({ ...__ll.game.fisher.look, pet: v }), kind);
+  await wait(250);
+  check(`${kind} builds`, await page.evaluate(() => __ll.game.pet.exists));
+}
+await page.evaluate(() => __ll.game.openMenu());
+await wait(200);
+await page.locator('#mPet').click();
+await wait(700);
+await shot('pet-panel');
+await page.locator('#wFoot button[data-w="done"]').click();
+await wait(300);
+
 // Bench.
 await page.evaluate(() => { const b = __ll.game.props.bench; __ll.place(b.x + 1.1, b.z + 0.8, 1.3); });
 await wait(600);
@@ -179,8 +261,67 @@ const rowRun = async () => {
 const r100 = await rowRun();
 await page.evaluate(() => __ll.game.ui.hooks.setRowSpeed(2));
 const r200 = await rowRun();
-await page.evaluate(() => __ll.game.ui.hooks.setRowSpeed(1));
 check('rowing speed setting works', r200 / r100 > 1.4, `${r100.toFixed(1)} m then ${r200.toFixed(1)} m`);
+await page.evaluate(() => __ll.game.ui.hooks.setRowSpeed(20));
+const rMax = await rowRun();
+const vMax = await page.evaluate(() => Math.abs(__ll.game.boat.speed));
+check('the top setting is a lot faster', rMax > r100 * 5 && vMax > 12, `${rMax.toFixed(0)} m, ${vMax.toFixed(1)} m/s`);
+// Flat out at the shore: stops at the water's edge rather than driving up the beach.
+await page.evaluate(() => __ll.boatAt(-60, 0, 3 * Math.PI / 2));
+await wait(200);
+await page.keyboard.down('KeyW');
+await wait(6000);
+await page.keyboard.up('KeyW');
+const beached = await page.evaluate(() => {
+  const b = __ll.game.boat;
+  return b.y;
+});
+check('a fast boat stays afloat at the shore', Math.abs(beached) < 0.4, String(beached));
+await page.evaluate(() => __ll.game.ui.hooks.setRowSpeed(1));
+
+// Backing water runs the stroke the other way.
+await page.evaluate(() => __ll.boatAt(-110, 30, 1.4));
+await wait(300);
+const phases = async (key) => {
+  await page.keyboard.down(key);
+  const out = [];
+  for (let i = 0; i < 6; i++) {
+    out.push(await page.evaluate(() => __ll.game.boat.oarPhase));
+    await wait(120);
+  }
+  await page.keyboard.up(key);
+  await wait(300);
+  const TAU = Math.PI * 2;
+  let sum = 0;
+  for (let i = 1; i < out.length; i++) sum += ((out[i] - out[i - 1] + TAU * 1.5) % TAU) - Math.PI;
+  return sum;
+};
+const dirF = await phases('KeyW');
+const speedF = await page.evaluate(() => __ll.game.boat.speed);
+const dirB = await phases('KeyS');
+await wait(1500);
+check('S runs the oars backwards', dirF > 0 && dirB < 0, `${dirF.toFixed(2)} then ${dirB.toFixed(2)}, was doing ${speedF.toFixed(2)} m/s`);
+
+// The boat, through its own panel.
+await page.evaluate(() => __ll.game.openMenu());
+await wait(300);
+await page.locator('#mBoat').click();
+await wait(500);
+check('Your boat opens its own panel', (await page.locator('#wTitle').textContent()).includes('Your boat'));
+const styles = ['canoe', 'bangka', 'raft', 'tub', 'dinghy'];
+for (const st of styles) {
+  await page.evaluate((v) => __ll.game.ui.wardrobe.hooks.set({ ...__ll.game.fisher.look, boatStyle: v, boatFigure: v === 'canoe' ? 'swan' : v === 'bangka' ? 'dragon' : v === 'raft' ? 'skull' : v === 'tub' ? 'duck' : 'none', boatSail: v === 'bangka' ? 'stripes' : v === 'canoe' ? 'canvas' : v === 'raft' ? 'pirate' : 'none', boatFlag: v === 'raft' ? 'pirate' : v === 'tub' ? 'rainbow' : 'red' }), st);
+  await wait(500);
+  await shot(`boat-${st}`);
+}
+check('every boat builds', (await page.evaluate(() => __ll.game.fisher.look.boatStyle)) === 'dinghy');
+const before = await page.evaluate(() => JSON.stringify(__ll.game.fisher.look.hat));
+await page.locator('#wFoot button[data-w="silly"]').click();
+await wait(300);
+check('Silly on the boat panel leaves your clothes alone', (await page.evaluate(() => JSON.stringify(__ll.game.fisher.look.hat))) === before);
+await page.locator('#wFoot button[data-w="reset"]').click();
+await page.locator('#wFoot button[data-w="done"]').click();
+await wait(300);
 
 // Row out, then fish: the full loop with real input.
 await page.evaluate(() => __ll.boatAt(-110, 30, 1.4));

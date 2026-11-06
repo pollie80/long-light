@@ -3,9 +3,10 @@
 import type { PoseMode } from '../actors/fisher';
 import { CharacterLook, cleanLook } from '../actors/look';
 import type { FishState } from '../game/fishing';
+import { MAP, MapId } from '../world/maps';
 
 /** Bumped whenever the messages change, so an old copy gets a clear message instead of odd behaviour. */
-export const PROTOCOL = 2;
+export const PROTOCOL = 3;
 export const MAX_PLAYERS = 8;
 export const PEER_PREFIX = 'long-light-cove-';
 export const HOSTED_URL = 'https://pollie80.github.io/long-light/';
@@ -14,6 +15,9 @@ export interface NetState {
   x: number; y: number; z: number; yaw: number;
   /** Off the ground, jumping. */
   air: boolean;
+  /** Shotgun out, and how many times it has been fired. */
+  gun: boolean;
+  shots: number;
   mode: PoseMode;
   sp: number;
   /** In the boat, with this seat turn. */
@@ -40,7 +44,7 @@ export interface PlayerInfo {
 export type Msg =
   | { t: 'hello'; v: number; name: string; look: CharacterLook }
   | { t: 'reject'; why: 'full' | 'version' }
-  | { t: 'welcome'; id: string; slot: number; hour: number; running: boolean; time: number; players: PlayerInfo[] }
+  | { t: 'welcome'; id: string; slot: number; hour: number; running: boolean; time: number; players: PlayerInfo[]; map: MapId }
   | { t: 'join'; p: PlayerInfo }
   | { t: 'leave'; id: string }
   | { t: 's'; st: NetState }
@@ -71,6 +75,8 @@ export function cleanState(v: unknown): NetState | null {
   return {
     x: num(o.x, 5000), y: num(o.y, 500), z: num(o.z, 5000), yaw: num(o.yaw, 100),
     air: o.air === true,
+    gun: o.gun === true,
+    shots: Math.floor(num(o.shots, 1e6)),
     mode: POSES.includes(o.mode as PoseMode) ? (o.mode as PoseMode) : 'stand',
     sp: num(o.sp, 20),
     ib: o.ib === true, fy: num(o.fy, 100),
@@ -105,11 +111,11 @@ export function makeCode(rnd: () => number = Math.random): string {
 }
 
 export function codeFromHash(hash: string): string | null {
-  const m = /^#join=([a-z0-9]{6})$/.exec(hash.trim().toLowerCase());
+  const m = /^#join=([a-z0-9]{6})(?:&map=[a-z]+)?$/.exec(hash.trim().toLowerCase());
   return m ? m[1] : null;
 }
 
 /** The link a friend opens. Always the public copy, because a file on one person's computer can't be shared. */
 export function inviteLink(code: string): string {
-  return `${HOSTED_URL}#join=${code}`;
+  return `${HOSTED_URL}#join=${code}&map=${MAP.id}`;
 }

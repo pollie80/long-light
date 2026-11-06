@@ -2,9 +2,10 @@
 // shadows across the cove. The huge one only refreshes every few frames.
 import * as THREE from 'three';
 import { L, U } from './shared';
+import { Q } from '../core/quality';
 
-const NEAR_SIZE = 4096;
-const FAR_SIZE = 4096;
+const NEAR_SIZE = Q.shadowNear;
+const FAR_SIZE = Q.shadowFar;
 const NEAR_RADIUS = 62;
 const FAR_RADIUS = 760;
 
@@ -109,11 +110,11 @@ export class Shadows {
     }
     this.r.setClearColor(0xffffff, 1);
     // The fine map refreshes on alternate frames; nothing here moves fast enough to notice.
-    if (this.frame % 2 === 0) {
+    if (this.frame % Q.shadowNearEvery === 0) {
       this.place(this.camNear, center, d, NEAR_SIZE, NEAR_RADIUS, 420);
       this.draw(scene, this.camNear, this.near, U.uShadowM0.value, L.CAST_NEAR);
     }
-    if (this.frame % 7 === 1) {
+    if (this.frame % Q.shadowFarEvery === 1) {
       this.place(this.camFar, new THREE.Vector3(center.x * 0.3, 0, center.z * 0.3), d, FAR_SIZE, FAR_RADIUS, 1500);
       this.draw(scene, this.camFar, this.far, U.uShadowM1.value, L.CAST_FAR);
     }

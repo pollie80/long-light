@@ -1,8 +1,18 @@
 // The wardrobe: every part of the fisher, sensible and silly, changed live on the figure.
-import { CharacterLook, DEFAULT_LOOK, GROUPS, PICKS, PickKey, randomLook, SLIDERS, SliderKey } from '../actors/look';
+import { BOAT_GROUPS, CharacterLook, DEFAULT_LOOK, GROUPS, PET_GROUPS, PICKS, PickKey, randomLook, SLIDERS, SliderKey } from '../actors/look';
 import { ICON } from './icons';
 
-const TAB_ICON: Record<string, string> = { Face: ICON.face, Hair: ICON.scissors, Hat: ICON.hat, Clothes: ICON.shirt, Body: ICON.ruler };
+const TAB_ICON: Record<string, string> = { Face: ICON.face, Hair: ICON.scissors, Hat: ICON.hat, Clothes: ICON.shirt, Body: ICON.ruler, Boat: ICON.boat, Colours: ICON.brush };
+
+export interface WardrobePanel {
+  title: string;
+  icon: string;
+  groups: string[];
+}
+
+export const LOOK_PANEL: WardrobePanel = { title: 'Your look', icon: ICON.hat, groups: GROUPS };
+export const BOAT_PANEL: WardrobePanel = { title: 'Your boat', icon: ICON.boat, groups: BOAT_GROUPS };
+export const PET_PANEL: WardrobePanel = { title: 'Your pet', icon: ICON.paw, groups: PET_GROUPS };
 
 export interface WardrobeHooks {
   get(): CharacterLook;
@@ -16,6 +26,7 @@ export class Wardrobe {
   private el: HTMLElement;
   private body: HTMLElement;
   private tabs: HTMLElement;
+  private panel = LOOK_PANEL;
   private group = GROUPS[0];
   private focusI = 0;
   private padPrev: boolean[] = [];
@@ -25,7 +36,7 @@ export class Wardrobe {
     this.el.id = 'wardrobe';
     this.el.className = 'paper hidden';
     this.el.innerHTML = /* html */ `
-      <h2>${ICON.hat} Your look</h2>
+      <h2 id="wTitle"></h2>
       <div id="wTabs"></div>
       <div id="wBody"></div>
       <div id="wFoot">
@@ -56,16 +67,25 @@ export class Wardrobe {
       this.hooks.close();
       return;
     }
-    if (a === 'sane') this.hooks.set(randomLook(false));
-    if (a === 'silly') this.hooks.set(randomLook(true));
-    if (a === 'reset') this.hooks.set({ ...DEFAULT_LOOK });
+    if (a === 'sane') this.hooks.set(this.only(randomLook(false)));
+    if (a === 'silly') this.hooks.set(this.only(randomLook(true)));
+    if (a === 'reset') this.hooks.set(this.only(DEFAULT_LOOK));
     this.hooks.tick();
     this.render();
   }
 
+  /** The current look with just this panel's parts taken from another. */
+  private only(from: CharacterLook): CharacterLook {
+    const out = { ...this.hooks.get() };
+    for (const r of PICKS) if (this.panel.groups.includes(r.group)) out[r.key] = from[r.key];
+    for (const r of SLIDERS) if (this.panel.groups.includes(r.group)) out[r.key] = from[r.key];
+    return out;
+  }
+
   private nextTab(dir: number) {
-    const i = GROUPS.indexOf(this.group);
-    this.group = GROUPS[(i + dir + GROUPS.length) % GROUPS.length];
+    const groups = this.panel.groups;
+    const i = groups.indexOf(this.group);
+    this.group = groups[(i + dir + groups.length) % groups.length];
     this.focusI = 0;
     this.hooks.tick();
     this.render();
@@ -116,7 +136,8 @@ export class Wardrobe {
   private render() {
     const look = this.hooks.get();
     this.tabs.innerHTML = '';
-    for (const g of GROUPS) {
+    this.tabs.classList.toggle('gone', this.panel.groups.length < 2);
+    for (const g of this.panel.groups) {
       const t = document.createElement('button');
       t.innerHTML = `${TAB_ICON[g] ?? ''}<span>${g}</span>`;
       t.className = g === this.group ? 'on' : '';
@@ -195,10 +216,13 @@ export class Wardrobe {
     this.showFocus();
   }
 
-  show(v: boolean) {
+  show(v: boolean, panel: WardrobePanel = LOOK_PANEL) {
     this.open = v;
     this.el.classList.toggle('hidden', !v);
     if (v) {
+      this.panel = panel;
+      this.group = panel.groups[0];
+      this.el.querySelector('#wTitle')!.innerHTML = `${panel.icon} ${panel.title}`;
       this.focusI = 0;
       this.render();
     }

@@ -1,4 +1,5 @@
-// The fish of the cove. Pure data and rules, no rendering.
+// The fish of each place. Pure data and rules, no rendering.
+import { MAP, MapId } from '../world/maps';
 
 export type Zone = 'shallows' | 'jetty' | 'reef' | 'deep' | 'magic';
 export type TimeWindow = [number, number]; // from hour, to hour; wraps past midnight if from > to
@@ -21,6 +22,7 @@ export interface Species {
   accent?: number;
   fight: number; // seconds of gentle reeling
   glow?: number; // shines by itself when lifted from the water
+  maps?: MapId[]; // only found in these places; everywhere if not given
 }
 
 const ANY: TimeWindow[] = [[0, 24]];
@@ -33,7 +35,22 @@ const DUSK: TimeWindow = [19, 20.6];
 const NIGHT: TimeWindow = [20.4, 4.9];
 const AWAKE: TimeWindow = [19.8, 5.2];
 
-export const SPECIES: Species[] = [
+const ALL_SPECIES: Species[] = [
+  // The Palawan lagoon.
+  { id: 'bangus', name: 'Bangus', verse: 'Milkfish, silver and sure of itself. The whole country has an opinion on how to cook it.', hint: 'Shallows and the jetty, by day.', zones: ['shallows', 'jetty'], when: [DAY, MORNING], rarity: 6, length: 0.6, depth: 0.24, top: 0x5f7f8c, side: 0xc8d4d8, belly: 0xf0f2f0, fin: 0x6a8a94, pattern: 'plain', fight: 3.2, maps: ['philippines'] },
+  { id: 'lapu', name: 'Lapu-Lapu', verse: 'A red grouper named after a chief who won.', hint: 'Reefs around the limestone towers, in the golden hours.', zones: ['reef'], when: [GOLDEN, MORNING], rarity: 3, length: 0.7, depth: 0.34, top: 0xa8362a, side: 0xc95040, belly: 0xe8b8a0, fin: 0x8a2a22, pattern: 'spots', accent: 0x3a4a78, fight: 5, maps: ['philippines'] },
+  { id: 'clown', name: 'Anemone Clown', verse: 'Orange, white, and very put out that you came.', hint: 'Reefs, any time the sun is up.', zones: ['reef'], when: [[6, 18]], rarity: 5, length: 0.11, depth: 0.42, top: 0xe8702a, side: 0xf08a34, belly: 0xf4a860, fin: 0x1a1a1a, pattern: 'bars', accent: 0xffffff, fight: 1.6, maps: ['philippines'] },
+  { id: 'parrotfish', name: 'Rainbow Parrotfish', verse: 'Eats coral and turns it into the beach you walked on.', hint: 'Reefs through the middle of the day.', zones: ['reef'], when: [DAY], rarity: 3, length: 0.55, depth: 0.36, top: 0x2f9a8a, side: 0x48b89a, belly: 0xe89ab0, fin: 0x3a68c8, pattern: 'stripes', accent: 0xe878a8, fight: 3.6, maps: ['philippines'] },
+  { id: 'tuna', name: 'Yellowfin', verse: 'A very large muscle with a very simple plan.', hint: 'Open water, morning and evening.', zones: ['deep'], when: [MORNING, GOLDEN, SUNSET], rarity: 2, length: 1.3, depth: 0.26, top: 0x25365e, side: 0xa8b4c0, belly: 0xe8ecf0, fin: 0xeac22e, pattern: 'plain', fight: 7.5, maps: ['philippines'] },
+  { id: 'sailfish', name: 'Sailfish', verse: 'Raises its sail, looks at you, and leaves.', hint: 'Open water at sunset. Rarely.', zones: ['deep'], when: [SUNSET], rarity: 0.6, length: 2.2, depth: 0.2, top: 0x28407a, side: 0x7a9ac0, belly: 0xe4e8ec, fin: 0x2f62b8, pattern: 'spots', accent: 0x5fb8e8, fight: 9, maps: ['philippines'] },
+  // Maple Lake.
+  { id: 'walleye', name: 'Walleye', verse: 'Its eyes catch your light at dusk and hand it straight back.', hint: 'Near the jetty, from dusk on.', zones: ['jetty', 'shallows'], when: [DUSK, NIGHT], rarity: 5, length: 0.55, depth: 0.22, top: 0x5f6a3a, side: 0xa8a860, belly: 0xece8d0, fin: 0x6a6a3a, pattern: 'bars', fight: 3.6, maps: ['canada'] },
+  { id: 'laketrout', name: 'Lake Trout', verse: 'Lives down where the water stays cold and the summer never reaches.', hint: 'Deep water, early or late.', zones: ['deep'], when: [DAWN, GOLDEN, SUNSET], rarity: 4, length: 0.75, depth: 0.22, top: 0x3e4e48, side: 0x7a8a7c, belly: 0xe4e4d8, fin: 0x8a5a3a, pattern: 'spots', accent: 0xd8d8c0, fight: 5, maps: ['canada'] },
+  { id: 'rainbow', name: 'Rainbow Trout', verse: 'A pink stripe the length of it, as if someone had signed their work.', hint: 'Shallows, in the morning.', zones: ['shallows'], when: [MORNING, DAWN], rarity: 5, length: 0.45, depth: 0.24, top: 0x5a7a58, side: 0xc4b8a0, belly: 0xece8e0, fin: 0x8a7a60, pattern: 'stripes', accent: 0xe07890, fight: 3, maps: ['canada'] },
+  { id: 'pike', name: 'Northern Pike', verse: 'All teeth and bad intentions, lying very still among the weed.', hint: 'Around the islands, any hour.', zones: ['reef'], when: ANY, rarity: 3, length: 0.95, depth: 0.16, top: 0x3e5a38, side: 0x6e8a50, belly: 0xe0e4c8, fin: 0x7a6a3a, pattern: 'spots', accent: 0xd8e0a0, fight: 5.5, maps: ['canada'] },
+  { id: 'muskie', name: 'Muskie', verse: 'The fish of ten thousand casts. You have done eleven.', hint: 'Deep water at sunset. Rarely.', zones: ['deep'], when: [SUNSET, DUSK], rarity: 0.7, length: 1.3, depth: 0.17, top: 0x4a5a48, side: 0x8a9a78, belly: 0xe8e8d8, fin: 0x8a5a3a, pattern: 'bars', fight: 8.5, maps: ['canada'] },
+  { id: 'sturgeon', name: 'Lake Sturgeon', verse: 'Older than the country. Possibly older than the lake.', hint: 'Deep water at night, with patience.', zones: ['deep'], when: [NIGHT], rarity: 0.6, length: 1.7, depth: 0.14, top: 0x4a4a48, side: 0x7a7a74, belly: 0xd8d4c8, fin: 0x5a5a54, pattern: 'plain', fight: 10, maps: ['canada'] },
+  // Every place.
   { id: 'smelt', name: 'Pearl Smelt', verse: 'Small and quick, and bright as a dropped coin.', hint: 'Anywhere the water is shallow, most hours.', zones: ['shallows', 'jetty'], when: ANY, rarity: 10, length: 0.16, depth: 0.2, top: 0x7fa7a4, side: 0xdde6dc, belly: 0xf4f2e6, fin: 0xb7c8c0, pattern: 'plain', fight: 4 },
   { id: 'flounder', name: 'Tide Flounder', verse: 'Lies on the sand and thinks about nothing.', hint: 'Under the jetty, any time at all.', zones: ['jetty'], when: ANY, rarity: 6, length: 0.32, depth: 0.5, top: 0x8c7a5a, side: 0xa58f6c, belly: 0xe8dfc8, fin: 0x7d6c4e, pattern: 'spots', accent: 0x5c4c34, fight: 6 },
   { id: 'perch', name: 'Reed Perch', verse: 'Barred like the shadows the reeds throw at evening.', hint: 'Shallows, in the soft light at either end of the day.', zones: ['shallows'], when: [DAWN, GOLDEN, SUNSET], rarity: 8, length: 0.27, depth: 0.34, top: 0x57703e, side: 0xa8a54e, belly: 0xe6d9a0, fin: 0xc8602e, pattern: 'bars', accent: 0x3c4a2a, fight: 6 },
@@ -55,6 +72,9 @@ export const SPECIES: Species[] = [
   { id: 'wisp', name: 'Wisp Minnow', verse: 'Not entirely sure it is a fish. Neither are you.', hint: 'Where the water glows, after dark.', zones: ['magic'], when: [AWAKE], rarity: 10, length: 0.14, depth: 0.22, top: 0x6a3ac0, side: 0xc8a0f8, belly: 0xf8f0ff, fin: 0xe8a0f0, pattern: 'glow', accent: 0xf0b0ff, fight: 4, glow: 0xc070ff },
   { id: 'koi', name: 'Aurora Koi', verse: 'Swims as if someone had left a small light on inside it.', hint: 'Where the water glows, after dark. Be patient with it.', zones: ['magic'], when: [AWAKE], rarity: 5, length: 0.5, depth: 0.36, top: 0x2a3a78, side: 0x3ec8d8, belly: 0xd8fff0, fin: 0x9a5ce0, pattern: 'glow', accent: 0x7ffff0, fight: 10, glow: 0x44e8e0 },
 ];
+
+/** The fish you can find where you are. */
+export const SPECIES: Species[] = ALL_SPECIES.filter((s) => !s.maps || s.maps.includes(MAP.id));
 
 export function inWindow(h: number, w: TimeWindow): boolean {
   const [a, b] = w;

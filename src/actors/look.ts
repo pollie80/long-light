@@ -31,13 +31,25 @@ export interface CharacterLook {
   neck: string;
   neckColor: string;
   back: string;
+  boatStyle: string;
+  boatHull: string;
+  boatTrim: string;
+  boatStripe: string;
+  boatOars: string;
+  boatLantern: string;
+  boatFigure: string;
+  boatFlag: string;
+  boatSail: string;
+  pet: string;
+  petColor: string;
   height: number;
   build: number;
   head: number;
+  petSize: number;
 }
 
-export type PickKey = Exclude<keyof CharacterLook, 'height' | 'build' | 'head'>;
-export type SliderKey = 'height' | 'build' | 'head';
+export type PickKey = Exclude<keyof CharacterLook, 'height' | 'build' | 'head' | 'petSize'>;
+export type SliderKey = 'height' | 'build' | 'head' | 'petSize';
 
 export interface PickRow {
   key: PickKey;
@@ -153,21 +165,70 @@ export const PICKS: PickRow[] = [
     p('creel', 'wicker basket'), p('rucksack', 'rucksack'), p('none', 'nothing'),
     p('cape', 'cape', true), p('parrot', 'a parrot', true), p('cat', 'a cat', true), p('duck', 'duck ring', true), p('wings', 'wings', true),
   ] },
+  // The boat.
+  { key: 'boatStyle', label: 'kind of boat', group: 'Boat', choices: [
+    p('dinghy', 'rowing dinghy'), p('canoe', 'canoe'), p('bangka', 'outrigger bangka'), p('raft', 'log raft'), p('tub', 'bathtub', true),
+  ] },
+  { key: 'boatFigure', label: 'on the bow', group: 'Boat', choices: [
+    p('none', 'nothing'), p('swan', 'swan'), p('duck', 'rubber duck', true), p('dragon', 'dragon', true), p('skull', 'skull', true),
+  ] },
+  { key: 'boatSail', label: 'sail', group: 'Boat', choices: [
+    p('none', 'no sail'), p('canvas', 'canvas'), p('red', 'red'), p('stripes', 'striped'), p('pirate', 'black', true),
+  ] },
+  { key: 'boatFlag', label: 'flag', group: 'Boat', choices: [
+    p('none', 'no flag'), p('red', 'red pennant'), p('blue', 'blue pennant'), p('rainbow', 'rainbow'), p('pirate', 'pirate', true),
+  ] },
+  { key: 'boatHull', label: 'hull', group: 'Colours', colours: true, choices: [
+    c('teal', 'sea teal', 0x2f7d80), c('navy', 'navy', 0x24375e), c('red', 'red', 0xa83226), c('white', 'white', 0xe6e0d2), c('yellow', 'yellow', 0xd9a62e),
+    c('green', 'green', 0x35623c), c('black', 'black', 0x24211f), c('wood', 'bare wood', 0x9a7248), c('pink', 'pink', 0xe28bb0),
+  ] },
+  { key: 'boatTrim', label: 'top plank', group: 'Colours', colours: true, choices: [
+    c('cream', 'cream', 0xe9ddc2), c('white', 'white', 0xf4f1e8), c('gold', 'gold', 0xc99a34), c('teal', 'teal', 0x2f7d80), c('red', 'red', 0xb5392e), c('black', 'black', 0x24211f),
+  ] },
+  { key: 'boatStripe', label: 'stripe', group: 'Colours', colours: true, choices: [
+    c('red', 'red', 0xb5392e), c('white', 'white', 0xf4f1e8), c('gold', 'gold', 0xc99a34), c('blue', 'blue', 0x2f62b8), c('black', 'black', 0x24211f),
+  ] },
+  { key: 'boatOars', label: 'oar blades', group: 'Colours', colours: true, choices: [
+    c('cream', 'cream', 0xe0d4b4), c('red', 'red', 0xb5392e), c('blue', 'blue', 0x2f62b8), c('green', 'green', 0x35623c), c('black', 'black', 0x24211f),
+  ] },
+  { key: 'boatLantern', label: 'lantern light', group: 'Colours', colours: true, choices: [
+    c('warm', 'warm', 0xffc070), c('white', 'white', 0xfff4e0), c('blue', 'blue', 0x70b4ff), c('green', 'green', 0x7dffa0), c('pink', 'pink', 0xff80c4), c('violet', 'violet', 0xb68aff),
+  ] },
+  // The pet.
+  { key: 'pet', label: 'companion', group: 'Pet', choices: [
+    p('dog', 'dog'), p('cat', 'cat'), p('parrot', 'parrot'), p('duck', 'duck'), p('capybara', 'capybara'), p('turtle', 'turtle'),
+    p('dragon', 'tiny dragon', true), p('rock', 'pet rock', true), p('none', 'no pet'),
+  ] },
+  { key: 'petColor', label: 'colour', group: 'Pet', colours: true, choices: [
+    c('golden', 'golden', 0xc99a50), c('ginger', 'ginger', 0xc4672a), c('brown', 'brown', 0x6e4a2c), c('black', 'black', 0x2a2624), c('white', 'white', 0xece6da), c('grey', 'grey', 0x8a8a88),
+    c('green', 'green', 0x4f9a48), c('red', 'red', 0xc23a2c), c('blue', 'blue', 0x3e78c8), c('pink', 'pink', 0xe28bb0),
+  ] },
 ];
 
 export const SLIDERS: SliderRow[] = [
   { key: 'height', label: 'height', group: 'Body', min: 0.72, max: 1.34, saneMin: 0.88, saneMax: 1.12 },
   { key: 'build', label: 'build', group: 'Body', min: 0.7, max: 1.7, saneMin: 0.85, saneMax: 1.3 },
   { key: 'head', label: 'head size', group: 'Body', min: 0.8, max: 2.2, saneMin: 0.92, saneMax: 1.12 },
+  { key: 'petSize', label: 'size', group: 'Pet', min: 0.5, max: 2.5, saneMin: 0.8, saneMax: 1.25 },
 ];
 
 export const GROUPS = ['Face', 'Hair', 'Hat', 'Clothes', 'Body'];
+export const BOAT_GROUPS = ['Boat', 'Colours'];
+export const PET_GROUPS = ['Pet'];
+
+/** Everything that changes the figure itself, as a key: nothing else needs its meshes rebuilt. */
+export function figureKey(look: CharacterLook): string {
+  const skip = [...BOAT_GROUPS, ...PET_GROUPS];
+  return JSON.stringify([...PICKS.filter((r) => !skip.includes(r.group)).map((r) => look[r.key]), ...SLIDERS.filter((r) => !skip.includes(r.group)).map((r) => look[r.key])]);
+}
 
 /** Exactly how the fisher looked before the wardrobe existed. */
 export const DEFAULT_LOOK: CharacterLook = {
   skin: 'warm', markings: 'rosy', eyes: 'dots', eyeColor: 'brown', eyewear: 'none', brows: 'none', nose: 'default', ears: 'none', mouth: 'none', inMouth: 'none',
   facialHair: 'short', hairStyle: 'short', hairColor: 'grey', hat: 'straw', hatColor: 'straw', outfit: 'coat', coatColor: 'mustard', trouserColor: 'navy',
   shoes: 'boots', shoeColor: 'oxblood', neck: 'scarf', neckColor: 'red', back: 'creel', height: 1, build: 1, head: 1,
+  boatStyle: 'dinghy', boatHull: 'teal', boatTrim: 'cream', boatStripe: 'red', boatOars: 'cream', boatLantern: 'warm', boatFigure: 'none', boatFlag: 'none', boatSail: 'none',
+  pet: 'dog', petColor: 'golden', petSize: 1,
 };
 
 /** Fills gaps and drops anything no longer offered, so an old save can never break the character. */

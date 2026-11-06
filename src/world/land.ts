@@ -1,5 +1,6 @@
 // The shape of the place, as plain maths. Rendering, walking and tree planting all read from here.
 import { clamp, fbm, lerp, ridged, smoothstep } from '../core/noise';
+import { MAP } from './maps';
 
 export const DECK_Y = 1.36;
 export const JETTY = { startX: 26, endX: -28, z: 0, halfWidth: 1.25 };
@@ -23,12 +24,8 @@ export const MAGIC_SPOTS = [
   { x: -236, z: -160, r: 26, hue: 0.72 },
 ];
 
-export const ISLETS = [
-  { x: -250, z: -196, r: 30, h: 13 },
-  { x: -352, z: -74, r: 54, h: 24 },
-  { x: -120, z: -128, r: 7, h: 3.2 },
-  { x: -196, z: 118, r: 11, h: 4.6 },
-];
+export const ISLETS = MAP.islets;
+const T = MAP.terrain;
 
 const smax = (a: number, b: number, k: number) => {
   const h = clamp(0.5 + (0.5 * (a - b)) / k);
@@ -51,19 +48,29 @@ function rawHeight(x: number, z: number): number {
   if (sd > 0) {
     h = -(0.078 * sd + 0.00026 * sd * sd);
     h = Math.max(h, -17);
-    h += fbm(x * 0.02, z * 0.02, 2) * Math.min(1, sd / 40) * 1.1;
+    // The first stretch off the shore is the same everywhere, so boats always have water at the jetty.
+    h *= lerp(1, T.depth, smoothstep(30, 130, sd));
+    h += fbm(x * 0.02, z * 0.02, 2) * Math.min(1, sd / 40) * 1.1 * Math.min(1, T.depth + 0.2);
   } else {
     const s = -sd;
     const sandy = 1 - smoothstep(70, 170, Math.abs(z));
-    const bw = lerp(4.5, 18, sandy);
+    const bw = lerp(T.beach[0], T.beach[1], sandy);
     const beach = Math.min(s, bw) * 0.11;
     const inland = Math.max(0, s - bw);
     const rise = 1 - Math.exp(-inland / 72);
     const ridge = ridged(x * 0.0055, z * 0.0055, 3);
-    const hill = rise * (9 + 56 * ridge * smoothstep(40, 260, inland)) + inland * 0.05 + fbm(x * 0.012, z * 0.012, 4) * rise * 13;
-    const cliff = (1 - sandy) * (1 - Math.exp(-inland / 7)) * (8 + 15 * Math.max(0, fbm(x * 0.021, z * 0.021, 3) + 0.4));
+    const hill = (rise * (9 + 56 * ridge * smoothstep(40, 260, inland)) + inland * 0.05 + fbm(x * 0.012, z * 0.012, 4) * rise * 13) * lerp(1, T.hills, smoothstep(90, 240, inland));
+    const cliff = (1 - sandy) * (1 - Math.exp(-inland / 7)) * (8 + 15 * Math.max(0, fbm(x * 0.021, z * 0.021, 3) + 0.4)) * T.cliffs;
     const roll = fbm(x * 0.05, z * 0.05, 3) * smoothstep(2, 30, inland) * 1.3;
     h = beach + hill + cliff + roll;
+    // The high ranges, well back from anywhere you walk.
+    if (T.peaks > 0) h += T.peaks * smoothstep(210, 620, inland) * (0.5 + 0.75 * ridged(x * 0.0031 + 4.1, z * 0.0031 - 2.3, 4));
+  }
+  // Ranges around the far side of the water, which turn the bay into a lake.
+  if (T.enclosed) {
+    // Low and wooded: the real peaks stand far behind, with a gap for the sunset.
+    const far = smoothstep(585, 760, Math.hypot(x - BAY.x, z - BAY.z) + fbm(x * 0.004, z * 0.004, 3) * 70);
+    if (far > 0) h = lerp(h, 9 + 26 * ridged(x * 0.0041 - 7.7, z * 0.0041 + 1.3, 3), far);
   }
   for (const i of ISLETS) {
     const dx = x - i.x;
@@ -72,7 +79,17 @@ function rawHeight(x: number, z: number): number {
     if (d > i.r * 2.4) continue;
     const q = d / i.r + fbm(x * 0.05 + i.x, z * 0.05 + i.z, 3) * 0.36;
     const crag = ridged(x * 0.08 + i.z, z * 0.08, 3) * 0.32 + 0.68;
-    h = Math.max(h, (1 - q * q) * i.h * crag);
+    if (T.karst) {
+      // Sheer limestone from the water up to a rough green top, with a scrap of beach at the foot.
+      const lumpy = q + fbm(x * 0.018 + i.z, z * 0.018 - i.x, 3) * 0.42;
+      const wall = 1 - smoothstep(0.58, 1.0, lumpy);
+      // Domed on top rather than cut flat, with a broken, stepping skyline.
+      const dome = 0.62 + 0.38 * (1 - smoothstep(0.0, 0.8, lumpy)) + (crag - 0.84) * 0.5;
+      if (lumpy < 1.0) h = Math.max(h, wall * i.h * dome);
+      if (q < 1) h = Math.max(h, (1 - q * q) * 2.4);
+    } else {
+      h = Math.max(h, (1 - q * q) * i.h * crag);
+    }
   }
   return h;
 }

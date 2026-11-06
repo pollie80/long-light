@@ -21,6 +21,10 @@ import { CharacterLook, cleanLook } from '../actors/look';
 import { AudioWorld, Surface } from '../audio/audio';
 import { Journal, UI } from '../ui/ui';
 import { clamp, damp, smoothstep } from '../core/noise';
+import { Pet } from '../actors/pet';
+import { Hunt } from './hunt';
+import { Q, setQuality } from '../core/quality';
+import { MAP, MapId, MAPS, switchMap } from '../world/maps';
 import { Net, NetPlayer } from '../net/net';
 import { RemotePlayer } from '../net/remote';
 import { cleanName, codeFromHash, inviteLink, NetState } from '../net/protocol';
@@ -37,10 +41,10 @@ const GRAVITY = 12.5;
 /** Where you can cast, a press shorter than this is a jump and a longer one is a cast. */
 const TAP_S = 0.22;
 
-interface Save { journal: Journal; paint: number; music: number; sfx: number; sensitivity: number; muteAway: boolean; name: string; walkSpeed: number; rowSpeed: number; look?: Partial<CharacterLook> }
+interface Save { journal: Journal; music: number; sfx: number; sensitivity: number; muteAway: boolean; name: string; walkSpeed: number; rowSpeed: number; fpsCap: number; resolution: number; quietAway: boolean; adapt: boolean; showFps: boolean; birds: Record<string, number>; bestShot: number; look?: Partial<CharacterLook> }
 
 function loadSave(): Save {
-  const d: Save = { journal: {}, paint: 6, music: 0.7, sfx: 0.9, sensitivity: 1, muteAway: true, name: '', walkSpeed: 1, rowSpeed: 1 };
+  const d: Save = { journal: {}, music: 0.7, sfx: 0.9, sensitivity: 1, muteAway: true, name: '', walkSpeed: 1, rowSpeed: 1, fpsCap: 60, resolution: 0, quietAway: true, adapt: true, showFps: false, birds: {}, bestShot: 0 };
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (raw) return { ...d, ...JSON.parse(raw) };
@@ -86,6 +90,18 @@ export class Game {
   private netStatus = '';
   private joinCode: string | null = null;
   airborne = false;
+  hunt!: Hunt;
+  gunOut = false;
+  private shells = 2;
+  private reloadT = 0;
+  private recoil = 0;
+  private flashT = 0;
+  private shotsFired = 0;
+  private flash!: THREE.Mesh;
+  private hintedGun = false;
+  private petTmp = new THREE.Vector3();
+  private petTmp2 = new THREE.Vector3();
+  private patted = false;
   private jumpY = 0;
   private jumpV = 0;
   private chargeT = 0;
@@ -93,6 +109,9 @@ export class Game {
   private wasMenu = false;
   private clockSendT = 0;
   private clockTouchedAt = -1e9;
+  private placeArmed: MapId | null = null;
+  private lastDraw = -1e9;
+  private fpsLabelT = 0;
   private qualityT = 0;
   private qualityUpT = 0;
   private qualityCeil = 1;
@@ -137,6 +156,8 @@ export class Game {
   private sideNow = 0.75;
   private wardrobeAngle = 0.35;
   private wardrobeDist = 3.1;
+  private wardrobeKind: 'self' | 'boat' | 'pet' = 'self';
+  pet!: Pet;
   private unlockedFor = 0;
   private magicNoticed = -1;
   private beerOrbit = 0;
@@ -178,13 +199,6 @@ export class Game {
         this.net.clockChanged(this.hour, v);
       },
       getClockRunning: () => this.clockRunning,
-      setPaint: (v) => {
-        this.save.paint = v;
-        this.applyPaint();
-        this.writeSave();
-        this.ui.refreshMenu();
-      },
-      getPaint: () => this.save.paint,
       setMusic: (v) => {
         this.save.music = v;
         this.audio.setVolumes(v, this.save.sfx);
@@ -229,8 +243,54 @@ export class Game {
         this.writeSave();
       },
       getMuteAway: () => this.save.muteAway,
-      wardrobe: () => this.openWardrobe(),
+      wardrobe: (kind) => this.openWardrobe(kind),
       friends: () => this.openFriends(),
+      places: () => {
+        this.ui.showMenu(false);
+        this.ui.showTitle(false);
+        this.input.unlock();
+        this.ui.prompt(null);
+        this.placeArmed = null;
+        this.ui.showPlaces(true, this.net.role === 'guest' ? 'Your friend picks the place while you are in their cove.' : '');
+        this.audio.pageTurn();
+      },
+      closePlaces: () => {
+        this.ui.showPlaces(false);
+        this.audio.uiTick();
+        if (this.mode === 'title') this.ui.showTitle(true);
+        else this.ui.showMenu(true);
+      },
+      choosePlace: (id) => this.choosePlace(id),
+      setQuality: (id) => setQuality(id),
+      setFpsCap: (v) => {
+        this.save.fpsCap = v;
+        this.writeSave();
+      },
+      getFpsCap: () => this.save.fpsCap,
+      setResolution: (v) => {
+        this.save.resolution = v;
+        this.pipe.renderScale = v;
+        this.resize();
+        this.writeSave();
+        this.ui.refreshMenu();
+      },
+      getResolution: () => this.pipe.renderScale,
+      setQuietAway: (v) => {
+        this.save.quietAway = v;
+        this.writeSave();
+      },
+      getQuietAway: () => this.save.quietAway,
+      setAdapt: (v) => {
+        this.save.adapt = v;
+        this.writeSave();
+      },
+      getAdapt: () => this.save.adapt,
+      setShowFps: (v) => {
+        this.save.showFps = v;
+        this.ui.setFps(v ? '' : null);
+        this.writeSave();
+      },
+      getShowFps: () => this.save.showFps,
       closeFriends: () => this.closeFriends(),
       play: () => this.startPlay(),
       startHosting: (name) => {
@@ -254,6 +314,8 @@ export class Game {
       get: () => this.fisher.look,
       set: (l) => {
         this.fisher.applyLook(l);
+        this.boat.applyLook(l);
+        this.pet.applyLook(l);
         this.save.look = l;
         this.writeSave();
         this.net.sendLook(l);
@@ -278,6 +340,10 @@ export class Game {
         this.ui.showJoin(false);
         this.startPlay();
         this.ui.toast('You are in the cove.', 3.5);
+      },
+      onWrongMap: (map) => {
+        location.hash = location.hash.includes('map=') ? location.hash.replace(/map=[a-z]+/, `map=${map}`) : `${location.hash}&map=${map}`;
+        location.reload();
       },
       onFail: (message) => {
         this.netError = message;
@@ -335,7 +401,7 @@ export class Game {
   }
 
   private anyMenuOpen() {
-    return this.ui.menuOpen || this.ui.journalOpen || this.ui.restOpen || this.ui.wardrobe.open || this.ui.friendsOpen;
+    return this.ui.menuOpen || this.ui.journalOpen || this.ui.restOpen || this.ui.wardrobe.open || this.ui.friendsOpen || this.ui.placesOpen;
   }
 
   private openMenu() {
@@ -349,9 +415,9 @@ export class Game {
     this.ui.showJournal(false, this.save.journal, '');
     this.ui.showRest(false);
     this.ui.showFriends(false);
+    this.ui.showPlaces(false);
     if (this.ui.wardrobe.open) {
       this.ui.setWardrobe(false);
-      this.applyPaint();
     }
     this.audio.uiTick();
     if (this.mode !== 'title') this.input.lock();
@@ -453,6 +519,8 @@ export class Game {
     return {
       x: r(p.x), y: r(p.y), z: r(p.z), yaw: r(this.inBoat ? 0 : root.rotation.y),
       air: this.airborne,
+      gun: this.gunOut,
+      shots: this.shotsFired,
       mode: pose.mode,
       sp: r(pose.speed),
       ib: this.inBoat, fy: r(this.fisherYaw),
@@ -473,6 +541,10 @@ export class Game {
       let r = this.remotes.get(p.id);
       if (!r) {
         r = new RemotePlayer(this.scene, this.pipe.late, this.lineMat, p.look, p.name, document.getElementById('ui')!);
+        r.onShot = (at) => {
+          const d = at.distanceTo(this.camera.position);
+          this.audio.shot(Math.max(0.12, Math.min(0.8, 24 / (d + 8))));
+        };
         this.remotes.set(p.id, r);
       }
       r.setName(p.name);
@@ -493,7 +565,23 @@ export class Game {
   }
 
   /** Drops the internal resolution on slower computers, rather than let a friend's game crawl. */
+  private choosePlace(id: MapId) {
+    if (this.net.role === 'guest') return;
+    if (id === MAP.id) {
+      this.closeMenus();
+      return;
+    }
+    if (this.net.role === 'host' && this.placeArmed !== id) {
+      this.placeArmed = id;
+      this.ui.placeNote(`Going to ${MAPS[id].name} ends your invite, and your friends go back to fishing alone. Choose it again to go.`);
+      return;
+    }
+    this.net.leave();
+    switchMap(id);
+  }
+
   private adaptQuality(dt: number) {
+    if (!this.save.adapt) return;
     // Another program hogging the graphics card while this one is behind it says nothing about this computer.
     if (document.hidden || !document.hasFocus()) {
       this.qualityT = 0;
@@ -531,24 +619,17 @@ export class Game {
     this.input.lock();
   }
 
-  private openWardrobe() {
+  private openWardrobe(kind: 'self' | 'boat' | 'pet' = 'self') {
+    this.wardrobeKind = kind;
     this.ui.showMenu(false);
     this.ui.showJournal(false, this.save.journal, '');
     this.ui.prompt(null);
     this.ui.showTitle(false);
-    this.ui.setWardrobe(true);
+    this.ui.setWardrobe(true, kind);
     this.input.unlock();
-    this.wardrobeAngle = 0.35;
-    this.wardrobeDist = 3.1;
-    // A finer brush while choosing, so small things like eyes can be seen.
-    this.pipe.settings.radius = (2 + this.save.paint * 0.9) * 0.5;
+    this.wardrobeAngle = kind === 'boat' ? 0.95 : 0.35;
+    this.wardrobeDist = kind === 'boat' ? 8 : kind === 'pet' ? 2.1 : 3.1;
     this.audio.pageTurn();
-  }
-
-  private applyPaint() {
-    const p = this.save.paint;
-    this.pipe.settings.radius = 2 + p * 0.9;
-    this.pipe.settings.strength = p > 0 ? 1 : 0;
   }
 
   private resize() {
@@ -582,10 +663,11 @@ export class Game {
     await step(0.1, 'stretching the canvas', () => {
       trans = bakeTransmittance(this.renderer);
       cloud = bakeCloud3D(this.renderer) as unknown as THREE.Data3DTexture;
+      if (this.save.resolution > 0) this.pipe.renderScale = this.save.resolution;
       this.resize();
-      this.applyPaint();
       this.sky = new Sky(this.renderer, trans, noise, cloud);
       this.shadows = new Shadows(this.renderer);
+    this.ui.setFps(this.save.showFps ? '' : null);
       this.water = new Water(this.renderer);
       this.sky.dome.layers.set(L.OPAQUE);
       this.scene.add(this.sky.dome);
@@ -638,11 +720,23 @@ export class Game {
   }
 
   private buildActors() {
-    this.boat = new Boat();
+    const startLook = cleanLook(this.save.look);
+    this.boat = new Boat(startLook);
     this.scene.add(this.boat.group);
-    this.fisher = new Fisher(cleanLook(this.save.look));
+    this.boat.onBump = () => this.audio.creak(0.6);
+    this.pet = new Pet(startLook);
+    this.scene.add(this.pet.root);
+    this.fisher = new Fisher(startLook);
     this.scene.add(this.fisher.root);
     this.scene.add(this.fisher.rod);
+    this.scene.add(this.fisher.gun);
+    this.hunt = new Hunt();
+    this.scene.add(this.hunt.group);
+    this.hunt.onSplash = () => this.audio.splash(0.35);
+    this.flash = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 6), new THREE.MeshBasicMaterial({ color: new THREE.Color(18, 11, 4) }));
+    this.flash.layers.set(L.MAIN_ONLY);
+    this.flash.visible = false;
+    this.scene.add(this.flash);
     this.fisher.root.position.set(this.px, this.py, this.pz);
     this.fisher.onStep = (foot) => this.audio.step(this.surfaceHere(), foot);
     this.lineMat = new THREE.ShaderMaterial({
@@ -745,9 +839,10 @@ export class Game {
     const li = MAX_LIGHTS - 1;
     U.uPL.value[li].set(lantern.x, lantern.y, lantern.z, 13);
     const lk = lampF * flick * 0.85;
-    U.uPLC.value[li].set(1.0 * lk, 0.55 * lk, 0.2 * lk);
+    const lc = this.boat.lanternRGB;
+    U.uPLC.value[li].set(lc.r * lk, lc.g * lk, lc.b * lk);
     wu.uLanternPos.value.copy(lantern);
-    wu.uLanternCol.value.set(1.0 * lk, 0.55 * lk, 0.22 * lk);
+    wu.uLanternCol.value.set(lc.r * lk, lc.g * lk, lc.b * lk);
 
     // The nearest pool of magic throws its colour on whatever is close to it.
     if (this.ui.wardrobe.open) {
@@ -835,7 +930,27 @@ export class Game {
     let wish = 0;
     let wx = 0;
     let wz = 0;
-    if (this.fishing.active) {
+    if (this.gunOut && hasMove) {
+      // Walking with the gun up: a careful step in any direction, still facing where you aim.
+      const s = Math.sin(this.yaw);
+      const c = Math.cos(this.yaw);
+      const dx = -s * my + c * mx;
+      const dz = -c * my - s * mx;
+      const l = Math.hypot(dx, dz) || 1;
+      const pace = 1.5 * Math.min(1, Math.hypot(mx, my)) * this.save.walkSpeed;
+      const nx = this.px + (dx / l) * pace * dt;
+      const nz = this.pz + (dz / l) * pace * dt;
+      if (this.walkable(nx, nz)) {
+        this.px = nx;
+        this.pz = nz;
+      }
+    }
+    if (this.gunOut) {
+      mx = 0;
+      my = 0;
+      this.strolling = false;
+      this.facing += wrapAngle(this.yaw - this.facing) * (1 - Math.exp(-dt * 14));
+    } else if (this.fishing.active) {
       mx = 0;
       my = 0;
       this.strolling = false;
@@ -852,7 +967,7 @@ export class Game {
       wz = dz / l;
       wish = pace;
     }
-    if (hasMove && !this.fishing.active) {
+    if (hasMove && !this.fishing.active && !this.gunOut) {
       const f = Math.min(1, Math.hypot(mx, my));
       const s = Math.sin(this.yaw);
       const c = Math.cos(this.yaw);
@@ -913,7 +1028,14 @@ export class Game {
       else if (onDeck && this.px < -6 && !this.hintedCast) prompt = pad ? 'hold <kbd>Cross</kbd> to cast from here' : 'hold <kbd>Space</kbd> to cast from here';
       else if (!this.strolling && this.speed < 0.1 && !onDeck && this.idleT > 8 && !this.hintedBoat) prompt = pad ? '<kbd>Triangle</kbd> stroll along the path' : '<kbd>Q</kbd> stroll along the path';
     }
+    const petNear = this.pet.exists && this.pet.worldPos(this.petTmp).distanceTo(this.fisher.root.position) < 1.9;
+    if (!prompt && canUse && petNear && this.speed < 0.2 && !this.patted) prompt = `<kbd>P</kbd> pat the ${this.pet.name}`;
     if (canUse && !this.ui.menuOpen) this.ui.prompt(prompt);
+    if (inp.was('KeyP') && petNear && !this.fishing.active) {
+      this.pet.pat();
+      this.patted = true;
+      this.audio.uiTick();
+    }
 
     if (canUse && (inp.was('KeyE') || inp.was('PadSquare'))) {
       if (atEnd) this.enterSit('dock');
@@ -934,7 +1056,10 @@ export class Game {
     // Space jumps. Standing where you can cast, a hold casts and a tap jumps.
     const castHere = onDeck && this.px < -6;
     const keyPressed = inp.was('Space') || inp.was('PadCross');
-    if (keyPressed && !this.fishing.active && !this.airborne && !this.wasMenu && (!castHere || this.speed > 0.4)) this.jump();
+    if (this.gunOut) {
+      // No casting with your hands full. Space still jumps.
+      if (keyPressed && !this.airborne && !this.wasMenu) this.jump();
+    } else if (keyPressed && !this.fishing.active && !this.airborne && !this.wasMenu && (!castHere || this.speed > 0.4)) this.jump();
     else if (castHere && !this.airborne) this.handleCast(dt, new THREE.Vector3(this.px, this.py + 1.5, this.pz));
     else if (this.fishing.active) this.fishing.reelIn();
   }
@@ -1069,10 +1194,10 @@ export class Game {
   }
 
   private updateRow(dt: number, t: number) {
-    this.boat.power = this.save.rowSpeed;
+    this.boat.power = this.save.rowSpeed * (this.input.jog ? 2 : 1);
     const inp = this.input;
     const fishingActive = this.fishing.active;
-    const resting = fishingActive || this.beer.active;
+    const resting = fishingActive || this.beer.active || this.gunOut;
     const fwd = resting ? 0 : inp.moveY;
     const turn = resting ? 0 : inp.moveX;
     this.boat.update(dt, t, fwd, turn, !resting, this.water);
@@ -1085,7 +1210,7 @@ export class Game {
     if (!fishingActive && nearMoor && (inp.was('KeyE') || inp.was('PadSquare'))) this.leaveBoat();
 
     const seat = this.boat.seat(new THREE.Vector3());
-    this.handleCast(dt, seat.clone().add(new THREE.Vector3(0, 0.75, 0)));
+    if (!this.gunOut) this.handleCast(dt, seat.clone().add(new THREE.Vector3(0, 0.75, 0)));
   }
 
   private handleCast(dt: number, from: THREE.Vector3) {
@@ -1146,6 +1271,71 @@ export class Game {
     return this.input.action && !this.lastMouse && !this.input.held('Space');
   }
 
+  /** Exactly where the sights are pointing. */
+  private shotDir(): THREE.Vector3 {
+    const cp = Math.cos(this.pitch);
+    return new THREE.Vector3(-Math.sin(this.yaw) * cp, -Math.sin(this.pitch), -Math.cos(this.yaw) * cp).normalize();
+  }
+
+  private toggleGun() {
+    if (this.fishing.active || this.beer.active || (this.mode !== 'walk' && this.mode !== 'row')) return;
+    this.gunOut = !this.gunOut;
+    this.audio.uiTick();
+    this.ui.sights(this.gunOut ? this.shells : null);
+    if (!this.gunOut) {
+      // Back to the usual view without a lurch.
+      this.pitch = clamp(this.pitch, -0.55, 1.1);
+    } else if (!this.hintedGun) {
+      this.hintedGun = true;
+      this.ui.hint(this.input.usingPad ? '<kbd>R2</kbd> fire, <kbd>R1</kbd> put it away' : '<kbd>Click</kbd> fire, <kbd>G</kbd> put it away', 6);
+    }
+  }
+
+  private fireGun() {
+    if (this.shells <= 0) return;
+    this.shells -= 1;
+    this.shotsFired += 1;
+    this.recoil = 1;
+    this.flashT = 0.055;
+    this.pitch -= 0.022;
+    this.audio.shot(1);
+    this.ui.sights(this.shells);
+    if (this.shells === 0) this.reloadT = 1.15;
+    const dir = this.shotDir();
+    const hit = this.hunt.fire(this.camera.position, dir);
+    if (hit) {
+      this.save.birds[hit.name] = (this.save.birds[hit.name] ?? 0) + hit.count;
+      const best = hit.distance > this.save.bestShot;
+      if (best) this.save.bestShot = hit.distance;
+      this.writeSave();
+      const total = Object.values(this.save.birds).reduce((a, b) => a + b, 0);
+      const what = hit.count > 1 ? `${hit.count} birds with one shot` : `${hit.name}, ${Math.round(hit.distance)} m`;
+      this.ui.toast(`${what}${best ? ', your longest yet' : ''}. ${total} in all.`, 3.2);
+    }
+  }
+
+  private updateGun(dt: number, menu: boolean) {
+    const inp = this.input;
+    if (!menu && (inp.was('KeyG') || inp.was('PadR1'))) this.toggleGun();
+    this.recoil = Math.max(0, this.recoil - dt * 6);
+    if (this.reloadT > 0) {
+      this.reloadT -= dt;
+      if (this.reloadT <= 0) {
+        this.shells = 2;
+        this.audio.reload();
+        if (this.gunOut) this.ui.sights(this.shells);
+      }
+    }
+    if (this.gunOut && !menu && (this.mode === 'walk' || this.mode === 'row') && !this.wasMenu && (inp.was('Mouse') || inp.was('PadR2') || inp.was('KeyF'))) this.fireGun();
+    if (this.gunOut && this.mode !== 'walk' && this.mode !== 'row') {
+      this.gunOut = false;
+      this.ui.sights(null);
+    }
+    this.flashT = Math.max(0, this.flashT - dt);
+    this.flash.visible = this.flashT > 0;
+    if (this.flash.visible) this.flash.position.copy(this.fisher.gunTip);
+  }
+
   private aimDir(): THREE.Vector3 {
     return new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)).normalize();
   }
@@ -1182,15 +1372,17 @@ export class Game {
     // In front of the mirror, as it were.
     if (this.ui.wardrobe.open) {
       if (inp.dragging) this.wardrobeAngle -= inp.lookX * 1.6;
-      this.wardrobeDist = clamp(this.wardrobeDist * Math.exp(inp.wheel * 0.0011), 0.95, 4.6);
+      const kind = this.wardrobeKind === 'pet' && !this.pet.exists ? 'self' : this.wardrobeKind;
+      const [dMin, dMax] = kind === 'boat' ? [4, 16] : kind === 'pet' ? [0.8, 4] : [0.95, 4.6];
+      this.wardrobeDist = clamp(this.wardrobeDist * Math.exp(inp.wheel * 0.0011), dMin, dMax);
       inp.wheel = 0;
-      const p = this.fisher.root.getWorldPosition(new THREE.Vector3());
-      const eye = this.fisher.eyeHeight;
-      const seated = this.inBoat || this.mode === 'sit';
+      const p = kind === 'boat' ? new THREE.Vector3(this.boat.x, this.boat.y, this.boat.z) : kind === 'pet' ? this.pet.worldPos() : this.fisher.root.getWorldPosition(new THREE.Vector3());
+      const eye = kind === 'boat' ? 1.7 : kind === 'pet' ? 0.5 : this.fisher.eyeHeight;
+      const seated = kind === 'self' && (this.inBoat || this.mode === 'sit');
       const top = seated ? eye - 0.42 : eye;
-      const close = 1 - smoothstep(1.2, 2.6, this.wardrobeDist);
+      const close = kind === 'self' ? 1 - smoothstep(1.2, 2.6, this.wardrobeDist) : 0;
       const fy = p.y + top * (0.62 + 0.38 * close);
-      const a = this.facingYaw() + Math.PI + this.wardrobeAngle;
+      const a = (kind === 'boat' ? this.boat.heading : this.facingYaw()) + Math.PI + this.wardrobeAngle;
       const cx = p.x + Math.sin(a) * this.wardrobeDist;
       const cz = p.z + Math.cos(a) * this.wardrobeDist;
       // Up close, look from just under the hat brim, so the face can be seen.
@@ -1208,6 +1400,28 @@ export class Game {
       return;
     }
     inp.wheel = 0;
+
+    // Sighting along the barrels, just behind the right shoulder.
+    if (this.gunOut && (this.mode === 'walk' || this.mode === 'row')) {
+      this.pitch = clamp(this.pitch, -1.25, 0.55);
+      const cp = Math.cos(this.pitch);
+      const dir = new THREE.Vector3(-Math.sin(this.yaw) * cp, -Math.sin(this.pitch), -Math.cos(this.yaw) * cp);
+      const head = this.fisher.root.getWorldPosition(new THREE.Vector3());
+      head.y += this.fisher.eyeHeight - (this.inBoat ? 0.42 : 0.02);
+      const side = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
+      const pos = head.clone().addScaledVector(side, 0.42).addScaledVector(dir, -1.55);
+      pos.y += 0.18 + this.recoil * 0.05;
+      pos.y = Math.max(pos.y, Math.max(groundY(pos.x, pos.z), 0.25) + 0.3);
+      this.camera.position.lerp(pos, 1 - Math.exp(-dt * 16));
+      this.camera.lookAt(this.camera.position.clone().addScaledVector(dir, 60));
+      this.fov = damp(this.fov, 40, 8, dt);
+      if (this.camera.fov !== this.fov) {
+        this.camera.fov = this.fov;
+        this.camera.updateProjectionMatrix();
+      }
+      this.idleT = 0;
+      return;
+    }
 
     // Target.
     let desiredDist = 6.4;
@@ -1319,7 +1533,9 @@ export class Game {
   private titleCamera(t: number) {
     // A slow drift across the meadow, looking out to the bay.
     const a = Math.sin(t * 0.03) * 0.5 + 0.5;
-    this.camera.position.set(72 + a * 6, 13.5 + a * 1.2, -13 + a * 3);
+    const camX = 72 + a * 6;
+    const camZ = -13 + a * 3;
+    this.camera.position.set(camX, Math.max(13.5 + a * 1.2, groundY(camX, camZ) + 4), camZ);
     this.camera.lookAt(-140, 7, 18 + a * 8);
     if (this.camera.fov !== 42) {
       this.camera.fov = 42;
@@ -1330,8 +1546,18 @@ export class Game {
   // ---- Frame --------------------------------------------------------------------------------------
 
   private loop(now: number) {
-    this.frame(now, false);
     requestAnimationFrame((n) => this.loop(n));
+    // The screen may refresh 240 times a second. A fishing game has no use for that, and the graphics card
+    // shouldn't run flat out to provide it, least of all while you're in another program.
+    const away = this.save.quietAway && !document.hasFocus();
+    const cap = away ? 20 : this.save.fpsCap;
+    if (cap > 0) {
+      const step = 1000 / cap;
+      const since = now - this.lastDraw;
+      if (since < step - 2) return;
+      this.lastDraw = since > step * 2 ? now : this.lastDraw + step;
+    }
+    this.frame(now, false);
   }
 
   frame(now: number, warm: boolean) {
@@ -1475,10 +1701,27 @@ export class Game {
 
     this.updateBeer(dt, menu);
 
+    if (!warm && this.mode !== 'title') this.updateGun(dt, menu);
+    if (!warm) this.hunt.update(dt, t, this.fisher.root.getWorldPosition(this.petTmp2), this.water);
     const pose = this.buildPose();
     this.lastPose = pose;
     this.fisher.update(dt, t, pose);
+    this.pet.update(dt, t, {
+      pos: this.fisher.root.getWorldPosition(this.petTmp2),
+      facing: this.inBoat ? this.boat.heading : this.facing,
+      speed: Math.max(this.speed, this.mode === 'transition' ? 2 : 0),
+      inBoat: this.inBoat,
+      air: this.airborne,
+      boat: this.boat,
+    });
     if (!warm) this.adaptQuality(dt);
+    if (this.save.showFps) {
+      this.fpsLabelT -= dt;
+      if (this.fpsLabelT <= 0) {
+        this.fpsLabelT = 0.5;
+        this.ui.setFps(`${Math.round(this.fpsAvg)} fps`);
+      }
+    }
 
     this.updateCamera(dt);
     this.camera.updateMatrixWorld();
@@ -1564,8 +1807,8 @@ export class Game {
     const f = this.fishing;
     let mode: PoseMode = 'stand';
     if (this.mode === 'sit') mode = this.sitKind === 'dock' ? 'dockSit' : 'benchSit';
-    const showing = this.fishingShows;
-    if (this.inBoat) mode = showing ? 'boatSit' : 'row';
+    const showing = this.fishingShows && !this.gunOut;
+    if (this.inBoat) mode = showing || this.gunOut ? 'boatSit' : 'row';
     const handleL = new THREE.Vector3();
     const handleR = new THREE.Vector3();
     if (this.inBoat) {
@@ -1573,8 +1816,8 @@ export class Game {
       this.boat.handle(1, handleL);
       this.boat.handle(0, handleR);
       // Swivel on the thwart to face a cast, or back to the oars.
-      const aimYaw = showing ? Math.atan2(-this.aimDir().x, -this.aimDir().z) - this.boat.heading : Math.PI;
-      this.fisherYaw += wrapAngle(aimYaw - this.fisherYaw) * (1 - Math.exp(-(showing ? 5 : 3) * 0.016));
+      const aimYaw = showing || this.gunOut ? Math.atan2(-this.aimDir().x, -this.aimDir().z) - this.boat.heading : Math.PI;
+      this.fisherYaw += wrapAngle(aimYaw - this.fisherYaw) * (1 - Math.exp(-(this.gunOut ? 12 : showing ? 5 : 3) * 0.016));
       this.fisher.root.rotation.y = this.fisherYaw;
     } else if (showing) {
       const a = this.aimDir();
@@ -1591,7 +1834,9 @@ export class Game {
       rowLean: this.boat.rowing ? -Math.cos(ph) : -Math.cos(ph) * 0.25,
       fishing: showing,
       air: this.airborne,
-      rodDir: this.rodAim(),
+      gun: this.gunOut,
+      recoil: this.recoil,
+      rodDir: this.gunOut ? this.shotDir() : this.rodAim(),
       rodBend: f.bendAmount(this.time),
       reelSpin: f.reelSpin,
       beerOut: this.beer.out,

@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { Builder, solid, TRS } from '../world/builder';
 import { paintedMaterial } from '../render/shared';
 import { damp } from '../core/noise';
-import { CharacterLook, DEFAULT_LOOK } from './look';
+import { CharacterLook, figureKey, DEFAULT_LOOK } from './look';
 import { buildBody } from './outfit';
 
 const UP_LEN = 0.29;
@@ -27,9 +27,12 @@ export interface PoseInput {
   beerOut?: number; // 0 in the basket, 1 in the left hand
   beerLift?: number; // 0 held at the chest, 1 at the mouth
   air?: boolean; // off the ground, jumping
+  gun?: boolean; // shotgun at the shoulder, pointing along rodDir
+  recoil?: number; // 1 the instant it fires, falling to 0
 }
 
 const Y_NEG = new THREE.Vector3(0, -1, 0);
+const GUN_AXIS = new THREE.Vector3(0, 0, -1);
 const v1 = new THREE.Vector3();
 const v2 = new THREE.Vector3();
 const v3 = new THREE.Vector3();
@@ -57,6 +60,12 @@ export class Fisher {
   private breath = 0;
   private a = { lean: 0, thigh: 0, shin: 0, seat: 0, dangle: 0, air: 0, land: 0 };
   private wasInAir = false;
+  /** The shotgun: laid along -z from the butt, placed in world space like the rod. */
+  gun = new THREE.Group();
+  gunTip = new THREE.Vector3();
+  private gunDirSmooth = new THREE.Vector3(0, 0, -1);
+  private gunMat = paintedMaterial();
+  private figure = '';
   private scarfVel = 0;
   private scarfAng = 0;
   private prevPos = new THREE.Vector3();
@@ -160,11 +169,21 @@ export class Fisher {
     this.rodMesh = solid(this.rodGeo, this.mat, false);
     this.rodMesh.frustumCulled = false;
     this.applyLook(look);
+    const g = new Builder(61);
+    g.box(0.05, 0.1, 0.34, 0x5a3a24, TRS(0, -0.025, -0.15, 0.1, 0, 0), { jit: 0.08 }, 0.015);
+    g.box(0.05, 0.06, 0.22, 0x5a3a24, TRS(0, -0.005, -0.4), { jit: 0.08 }, 0.012);
+    for (const s of [-1, 1]) g.cyl(0.0125, 0.0135, 0.66, 0x25272c, TRS(s * 0.0135, 0.018, -0.78, Math.PI / 2, 0, 0), {}, 8);
+    g.box(0.042, 0.03, 0.26, 0x6a4a2e, TRS(0, -0.008, -0.66), {}, 0.008);
+    this.gun.add(solid(g.build(), this.gunMat, false));
+    this.gun.visible = false;
   }
 
   /** Replaces every mesh on the rig with the given look. Cheap enough to call on each wardrobe click. */
   applyLook(look: CharacterLook) {
     this.look = look;
+    const key = figureKey(look);
+    if (key === this.figure) return;
+    this.figure = key;
     for (const m of this.skinMeshes) {
       m.parent?.remove(m);
       m.geometry.dispose();
@@ -363,7 +382,25 @@ export class Fisher {
     const right = new THREE.Vector3(1, 0, 0).applyQuaternion(rootQ);
     const worldUp = new THREE.Vector3(0, 1, 0);
 
-    if (pose.mode === 'row' && !pose.fishing && pose.handleL && pose.handleR) {
+    this.gun.visible = !!pose.gun;
+    this.rod.visible = !pose.gun;
+    if (pose.gun && pose.rodDir) {
+      // Stock in the right shoulder, left hand out along the barrels.
+      this.gunDirSmooth.lerp(pose.rodDir, 1 - Math.exp(-dt * 22)).normalize();
+      const aim = this.gunDirSmooth;
+      const kick = pose.recoil ?? 0;
+      const shoulder = this.shoulderWorld(1, new THREE.Vector3());
+      const butt = new THREE.Vector3().copy(shoulder).addScaledVector(aim, 0.06 - kick * 0.07).addScaledVector(worldUp, -0.04);
+      const grip = new THREE.Vector3().copy(butt).addScaledVector(aim, 0.26).addScaledVector(worldUp, -0.04);
+      const fore = new THREE.Vector3().copy(butt).addScaledVector(aim, 0.62).addScaledVector(worldUp, -0.03);
+      this.reach(1, grip, new THREE.Vector3().copy(right).multiplyScalar(0.8).addScaledVector(worldUp, -0.5));
+      this.reach(0, fore, new THREE.Vector3().copy(right).multiplyScalar(-0.8).addScaledVector(worldUp, -0.6));
+      this.gun.position.copy(butt);
+      // A shot throws the barrels up a little.
+      const up = new THREE.Vector3().copy(aim).addScaledVector(worldUp, kick * 0.12).normalize();
+      this.gun.quaternion.setFromUnitVectors(GUN_AXIS, up);
+      this.gunTip.copy(butt).addScaledVector(up, 1.12);
+    } else if (pose.mode === 'row' && !pose.fishing && pose.handleL && pose.handleR) {
       // The rod stows along the thwart while rowing.
       this.reach(0, pose.handleL, new THREE.Vector3().copy(right).multiplyScalar(-0.8).addScaledVector(worldUp, -0.6));
       // With a bottle out the oars are shipped, and the free hand rests on a knee.

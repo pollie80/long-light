@@ -3,10 +3,14 @@ import * as THREE from 'three';
 import { COTTAGE, groundY, PATH } from './land';
 import { L, LIT_FRAG, U } from '../render/shared';
 import { fbm, mulberry32, ridged } from '../core/noise';
+import { MAP, MAP_GLSL } from './maps';
+import { Q } from '../core/quality';
 import grassCol from '../shaders/grasscol.glsl?raw';
 
 const CENTER = { x: 40, z: 0 };
-const SEGS = 720;
+const SEGS = Q.terrainSegs;
+/** The ground is cut into this many pieces a side, so whatever is behind you isn't drawn. */
+const PIECES = 8;
 const HALF = 1300;
 
 function pathTexture(): { tex: THREE.CanvasTexture; rect: THREE.Vector4 } {
@@ -108,6 +112,7 @@ export function makeTerrain(): THREE.Group {
       }`,
     fragmentShader:
       LIT_FRAG +
+      MAP_GLSL +
       grassCol +
       /* glsl */ `
       varying vec3 vP;
@@ -142,26 +147,30 @@ export function makeTerrain(): THREE.Group {
         grass *= 0.85 + 0.3 * n4;
 
         // Rock: cool violet greys with warm strata.
-        vec3 rockA = hexv(112.0, 104.0, 112.0);
-        vec3 rockB = hexv(150.0, 128.0, 114.0);
+        vec3 rockA = ROCK_A;
+        vec3 rockB = ROCK_B;
         float strata = texture2D(uNoise, vec2(xz.x * 0.02 + xz.y * 0.02, vP.y * 0.13)).r;
         vec3 rock = mix(rockA, rockB, smoothstep(0.32, 0.68, strata)) * (0.72 + 0.5 * ridge);
 
         // Sand: pale warm, wet and darker close to the waterline.
-        vec3 sand = mix(hexv(226.0, 200.0, 158.0), hexv(206.0, 174.0, 134.0), n3);
+        vec3 sand = mix(SAND_A, SAND_B, n3);
         sand *= 0.92 + 0.16 * n4;
         float ripples = sin(xz.x * 3.1 + n2 * 9.0 + n3 * 3.0) * 0.5 + 0.5;
         sand *= 0.97 + 0.05 * ripples;
 
         // Seabed fades to deep cool colours; water tints it anyway.
-        vec3 seabed = mix(sand * 0.75, hexv(60.0, 84.0, 88.0), smoothstep(-0.6, -5.0, vP.y));
+        vec3 seabed = mix(sand * 0.75, SEABED, smoothstep(-0.6, -5.0, vP.y));
 
-        float sandTop = 1.25 + (n2 - 0.5) * 1.6 + (n3 - 0.5) * 0.6;
+        float sandTop = SAND_TOP + (n2 - 0.5) * 1.6 + (n3 - 0.5) * 0.6;
         float isSand = 1.0 - smoothstep(sandTop - 0.28, sandTop + 0.28, vP.y);
         vec3 ground = mix(grass, sand, isSand);
 
         float rockMask = smoothstep(0.17, 0.30, slope + (ridge - 0.5) * 0.11);
         ground = mix(ground, rock, rockMask);
+
+        // Snow on the high ground, except where it's too steep to hold.
+        float snow = smoothstep(SNOW_LINE, SNOW_LINE + 36.0, vP.y + (n2 - 0.5) * 34.0) * (1.0 - smoothstep(0.42, 0.72, slope));
+        ground = mix(ground, vec3(0.84, 0.86, 0.92), snow);
 
         // Damp line, breathing slightly with the swell.
         float wetLine = 0.25 + 0.06 * sin(uTime * 0.5) + (n3 - 0.5) * 0.18;
@@ -175,10 +184,10 @@ export function makeTerrain(): THREE.Group {
           vec4 p = texture2D(uPathTex, puv);
           float edge = p.r + (n3 - 0.5) * 0.45 + (n4 - 0.5) * 0.28;
           float pm = smoothstep(0.35, 0.75, edge);
-          vec3 dirt = mix(hexv(150.0, 118.0, 84.0), hexv(176.0, 142.0, 100.0), n4);
+          vec3 dirt = mix(DIRT_A, DIRT_B, n4);
           ground = mix(ground, dirt, pm);
           float st = smoothstep(0.45, 0.62, p.g + (n4 - 0.5) * 0.25) * pm;
-          vec3 stone = mix(hexv(170.0, 160.0, 150.0), hexv(138.0, 128.0, 128.0), n3);
+          vec3 stone = mix(STONE_A, STONE_B, n3);
           ground = mix(ground, stone, st);
         }
 
@@ -196,10 +205,41 @@ export function makeTerrain(): THREE.Group {
     },
   });
   const group = new THREE.Group();
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.frustumCulled = false;
-  mesh.layers.set(L.MAIN_ONLY);
-  group.add(mesh);
+  const span = Math.ceil(SEGS / PIECES);
+  const box = new THREE.Box3();
+  for (let pj = 0; pj < PIECES; pj++) {
+    for (let pi = 0; pi < PIECES; pi++) {
+      const pieceIdx: number[] = [];
+      const j1 = Math.min(SEGS, (pj + 1) * span);
+      const i1 = Math.min(SEGS, (pi + 1) * span);
+      for (let j = pj * span; j < j1; j++) {
+        for (let i = pi * span; i < i1; i++) {
+          const a = j * n + i;
+          pieceIdx.push(a, a + n, a + 1, a + 1, a + n, a + n + 1);
+        }
+      }
+      if (!pieceIdx.length) continue;
+      const pg = new THREE.BufferGeometry();
+      pg.setAttribute('position', geo.attributes.position);
+      pg.setAttribute('normal', geo.attributes.normal);
+      pg.setIndex(pieceIdx);
+      // Three's own bounding sphere would walk the whole shared grid, so work it out from the piece's corners and heights.
+      box.makeEmpty();
+      for (let j = pj * span; j <= j1; j += 2) {
+        for (let i = pi * span; i <= i1; i += 2) {
+          box.expandByPoint(new THREE.Vector3(pos[(j * n + i) * 3], pos[(j * n + i) * 3 + 1], pos[(j * n + i) * 3 + 2]));
+        }
+      }
+      for (const [i, j] of [[pi * span, pj * span], [i1, pj * span], [pi * span, j1], [i1, j1]]) {
+        box.expandByPoint(new THREE.Vector3(pos[(j * n + i) * 3], pos[(j * n + i) * 3 + 1], pos[(j * n + i) * 3 + 2]));
+      }
+      pg.boundingBox = box.clone();
+      pg.boundingSphere = box.getBoundingSphere(new THREE.Sphere());
+      const mesh = new THREE.Mesh(pg, mat);
+      mesh.layers.set(L.MAIN_ONLY);
+      group.add(mesh);
+    }
+  }
 
   // One vertex in three is plenty for the reflection and the wide shadow map.
   const STRIDE = 3;
@@ -255,7 +295,7 @@ export function makeFarMountains(): THREE.Group {
       const gapK = ri < 2 ? 0.2 : 0.42;
       // Eastern side is hidden by the near hills, so no need for peaks there.
       top *= gapK + (1 - gapK) * gap;
-      heightsAt.push(Math.max(0.04, top) * ring.h);
+      heightsAt.push(Math.max(0.04, top) * ring.h * MAP.far.height);
     }
     for (let i = 0; i <= segs; i++) {
       const az = (i / segs) * Math.PI * 2;
@@ -285,6 +325,7 @@ export function makeFarMountains(): THREE.Group {
         /* glsl */ `
         varying vec3 vP;
         uniform float uVal;
+        uniform float uSnowAt;
         void main() {
           vec3 d = normalize(vP - cameraPosition);
           // The colour of the sky low in this direction, deepened by a bluish body colour.
@@ -297,9 +338,12 @@ export function makeFarMountains(): THREE.Group {
           // Faint sun-side glow on slopes, gathered near the base where the haze piles up.
           float low = exp(-max(vP.y, 0.0) * 0.004);
           col = mix(col, horizon, low * 0.42);
+          // Snowfields on the far peaks take the colour of the sky, only brighter.
+          float snow = smoothstep(uSnowAt, uSnowAt * 1.5, vP.y + (n - 0.5) * uSnowAt * 0.7);
+          col = mix(col, horizon * vec3(1.32, 1.34, 1.42) + vec3(0.015), snow);
           gl_FragColor = vec4(col, 1.0);
         }`,
-      uniforms: { ...U, uVal: { value: ring.val } },
+      uniforms: { ...U, uVal: { value: ring.val }, uSnowAt: { value: MAP.far.snow * (ring.h / 300) } },
       side: THREE.DoubleSide,
     });
     const m = new THREE.Mesh(geo, mat);

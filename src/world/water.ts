@@ -3,11 +3,15 @@ import * as THREE from 'three';
 import { fsMat, fsq } from '../render/fsq';
 import { L, LIT_FRAG, U } from '../render/shared';
 import waterFrag from '../shaders/water.glsl?raw';
+import { MAP } from './maps';
+import { Q } from '../core/quality';
+
+const waterFrag_MAP = waterFrag.replace('vec3 absorb = vec3(0.42, 0.11, 0.075);', `vec3 absorb = vec3(${MAP.water.absorb.join(', ')});`);
 import { MAGIC_SPOTS, SWELL_GLSL } from './land';
 import { mulberry32 } from '../core/noise';
 
 const WAVES = 64;
-const RIP = 512;
+const RIP = Q.ripple;
 const RIP_WORLD = 180;
 const MAX_DROPS = 12;
 
@@ -196,7 +200,7 @@ export class Water {
           vViewZ = -mv.z;
           gl_Position = projectionMatrix * mv;
         }`,
-      fragmentShader: LIT_FRAG + waterFrag,
+      fragmentShader: LIT_FRAG + waterFrag_MAP,
       uniforms: {
         ...U,
         uSwell: { value: swell },

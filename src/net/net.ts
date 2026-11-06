@@ -1,9 +1,11 @@
 // Live play between friends over WebRTC. One player hosts; everyone connects to the host, who passes
 // each player's state on to the others. No game server: the public PeerJS service only introduces
 // browsers to each other, and then they talk directly.
-import Peer, { DataConnection } from 'peerjs';
+import Peer from 'peerjs';
 import { CharacterLook, cleanLook } from '../actors/look';
 import { cleanName, cleanPlayer, cleanState, makeCode, MAX_PLAYERS, Msg, NetState, PEER_PREFIX, PlayerInfo, PROTOCOL } from './protocol';
+import { Link, RelayGuest, RelayHub } from './relay';
+import { MAP, MapId, MAP_ORDER } from '../world/maps';
 
 export type Role = 'solo' | 'host' | 'guest';
 
@@ -16,6 +18,8 @@ export interface NetEvents {
   onChange(): void;
   /** A guest got in: start playing, with this boat slot and clock. */
   onWelcome(slot: number, hour: number, running: boolean, time: number): void;
+  /** The host is fishing somewhere else: the game has to reload there. */
+  onWrongMap(map: MapId): void;
   onFail(message: string): void;
   onClock(hour: number, running: boolean, time: number): void;
   onJoin(p: NetPlayer): void;
@@ -27,7 +31,11 @@ export interface NetEvents {
 
 const SEND_HZ = 15;
 const CLOCK_EVERY = 2;
-const JOIN_TIMEOUT_MS = 20000;
+/** How long a direct connection gets before a friend switches to the backup route. */
+const DIRECT_WAIT_MS = 8000;
+const JOIN_TIMEOUT_MS = 28000;
+/** PeerJS's own TURN servers no longer exist, so asking for them only produces errors. */
+const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }];
 const HOST_SILENCE_S = 14;
 
 export class Net {
@@ -39,8 +47,12 @@ export class Net {
   slot = 0;
   players = new Map<string, NetPlayer>();
   private peer: Peer | null = null;
-  private conns = new Map<string, DataConnection>();
-  private hostConn: DataConnection | null = null;
+  /** How a guest is connected. */
+  route: 'direct' | 'relay' = 'direct';
+  private conns = new Map<string, Link>();
+  private hostConn: Link | null = null;
+  private hub: RelayHub | null = null;
+  private guestRelay: RelayGuest | null = null;
   private acc = 0;
   private clockAcc = 0;
   private sinceHost = 0;
@@ -72,35 +84,55 @@ export class Net {
   private tryHostId(attempt: number) {
     this.code = makeCode();
     this.ev.onStatus('Getting your link…');
-    const peer = new Peer(PEER_PREFIX + this.code);
+    const peer = new Peer(PEER_PREFIX + this.code, { config: { iceServers: ICE_SERVERS } });
     this.peer = peer;
-    peer.on('open', () => {
-      this.ready = true;
-      this.ev.onStatus('');
+    const usable = () => {
+      if (this.peer !== peer && this.role !== 'host') return;
+      if (!this.ready) {
+        this.ready = true;
+        this.ev.onStatus('');
+      }
       this.ev.onChange();
+    };
+    peer.on('open', () => {
+      usable();
+      this.startHub(usable);
     });
-    peer.on('connection', (c) => this.acceptGuest(c));
+    peer.on('connection', (c) => this.acceptGuest(c as unknown as Link));
     peer.on('disconnected', () => {
       // Lost the introduction service only; friends already here stay connected.
-      if (!peer.destroyed) peer.reconnect();
+      if (this.peer === peer && !peer.destroyed) peer.reconnect();
     });
     peer.on('error', (e: Error & { type?: string }) => {
+      if (this.peer !== peer) return;
       if (e.type === 'unavailable-id' && attempt < 4) {
+        this.peer = null;
         peer.destroy();
         this.tryHostId(attempt + 1);
         return;
       }
       if (e.type === 'peer-unavailable') return;
-      if (this.conns.size === 0) {
-        this.leave();
-        this.ev.onFail(e.type === 'network' || e.type === 'server-error' || e.type === 'socket-error' || e.type === 'socket-closed'
-          ? 'Could not reach the connection service. Check your internet and try again.'
-          : 'Could not set up the invite. Try again in a moment.');
-      }
+      // The backup route can carry the whole game by itself if the introduction service is down.
+      this.startHub(usable);
+      window.setTimeout(() => {
+        if (this.role === 'host' && !this.ready) {
+          this.leave();
+          this.ev.onFail('Could not reach the connection service. Check your internet and try again.');
+        }
+      }, DIRECT_WAIT_MS);
     });
   }
 
-  private acceptGuest(c: DataConnection) {
+  private startHub(onUp: () => void) {
+    if (this.hub || this.role !== 'host') return;
+    try {
+      this.hub = new RelayHub(this.code, (link) => this.acceptGuest(link), onUp);
+    } catch {
+      /* Direct connections still work without it. */
+    }
+  }
+
+  private acceptGuest(c: Link) {
     let id = '';
     c.on('data', (raw) => {
       const m = raw as Msg;
@@ -122,7 +154,7 @@ export class Net {
         const p: NetPlayer = { id, name: cleanName(m.name), look: cleanLook(m.look), slot, state: null };
         const others: PlayerInfo[] = [{ id: this.myId, name: this.name, look: this.look!, slot: this.slot }, ...[...this.players.values()].map(({ id: i, name, look, slot: s }) => ({ id: i, name, look, slot: s }))];
         const clock = this.getClock();
-        c.send({ t: 'welcome', id, slot, hour: clock.hour, running: clock.running, time: clock.time, players: others } satisfies Msg);
+        c.send({ t: 'welcome', id, slot, hour: clock.hour, running: clock.running, time: clock.time, players: others, map: MAP.id } satisfies Msg);
         this.broadcast({ t: 'join', p: { id, name: p.name, look: p.look, slot } });
         this.players.set(id, p);
         this.conns.set(id, c);
@@ -186,7 +218,10 @@ export class Net {
   }
 
   private broadcast(m: Msg) {
-    for (const c of this.conns.values()) if (c.open) c.send(m);
+    // Positions and the clock go out once for everyone on the backup route, not once per friend.
+    const shared = m.t === 'ss' || m.t === 'c';
+    for (const c of this.conns.values()) if (c.open && !(shared && c.relay)) c.send(m);
+    if (shared) this.hub?.sendAll(m);
   }
 
   // ---- Joining ------------------------------------------------------------------------------------
@@ -198,31 +233,74 @@ export class Net {
     this.role = 'guest';
     this.code = code;
     this.ready = true;
+    this.route = 'direct';
     this.ev.onStatus('Looking for your friend…');
-    const peer = new Peer();
-    this.peer = peer;
-    this.joinTimer = window.setTimeout(() => {
-      if (this.role === 'guest' && !this.hostConn?.open) this.failJoin('No answer. Your friend may have closed the game, or your network may be blocking the connection.');
-    }, JOIN_TIMEOUT_MS);
-    peer.on('open', () => {
-      const c = peer.connect(PEER_PREFIX + code, { reliable: true, serialization: 'json' });
+    const hello = (c: Link) => {
+      this.ev.onStatus('Saying hello…');
+      c.send({ t: 'hello', v: PROTOCOL, name: this.name, look } satisfies Msg);
+    };
+    const attach = (c: Link) => {
       this.hostConn = c;
-      c.on('open', () => {
-        this.ev.onStatus('Saying hello…');
-        c.send({ t: 'hello', v: PROTOCOL, name: this.name, look } satisfies Msg);
+      c.on('data', (raw) => {
+        if (this.hostConn === c) this.fromHost(raw as Msg);
       });
-      c.on('data', (raw) => this.fromHost(raw as Msg));
-      c.on('close', () => this.hostGone());
-      c.on('error', () => this.hostGone());
+      const gone = () => {
+        if (this.hostConn !== c) return;
+        if (this.players.size === 0 && this.route === 'direct') useRelay();
+        else this.hostGone();
+      };
+      c.on('close', gone);
+      c.on('error', gone);
+    };
+
+    let invitePossiblyDead = false;
+    const useRelay = () => {
+      if (this.role !== 'guest' || this.route === 'relay' || this.players.size > 0) return;
+      this.route = 'relay';
+      window.clearTimeout(directTimer);
+      const direct = this.hostConn;
+      const peer = this.peer;
+      this.hostConn = null;
+      this.peer = null;
+      direct?.close();
+      if (peer && !peer.destroyed) peer.destroy();
+      this.ev.onStatus('Trying another route…');
+      const relay = new RelayGuest(code);
+      this.guestRelay = relay;
+      attach(relay.link);
+      relay.link.on('open', () => hello(relay.link));
+      // The service said nobody has that invite, and the backup route had a fair chance to say otherwise.
+      if (invitePossiblyDead) {
+        window.clearTimeout(this.joinTimer);
+        this.joinTimer = window.setTimeout(() => {
+          if (this.role === 'guest' && this.players.size === 0) this.failJoin('That invite is no longer open. Ask your friend for a new link.');
+        }, DIRECT_WAIT_MS);
+      }
+    };
+    const directTimer = window.setTimeout(useRelay, DIRECT_WAIT_MS);
+    this.joinTimer = window.setTimeout(() => {
+      if (this.role === 'guest' && this.players.size === 0) this.failJoin('No answer. Your friend may have closed the game, or the connection may be blocked on one of your networks.');
+    }, JOIN_TIMEOUT_MS);
+
+    const peer = new Peer({ config: { iceServers: ICE_SERVERS } });
+    this.peer = peer;
+    peer.on('open', () => {
+      if (this.peer !== peer) return;
+      const c = peer.connect(PEER_PREFIX + code, { reliable: true, serialization: 'json' }) as unknown as Link;
+      attach(c);
+      c.on('open', () => {
+        if (this.hostConn !== c) return;
+        window.clearTimeout(directTimer);
+        hello(c);
+      });
     });
     peer.on('disconnected', () => {
-      if (!peer.destroyed) peer.reconnect();
+      if (this.peer === peer && !peer.destroyed) peer.reconnect();
     });
     peer.on('error', (e: Error & { type?: string }) => {
-      if (this.players.size > 0) return;
-      if (e.type === 'peer-unavailable') this.failJoin('That invite is no longer open. Ask your friend for a new link.');
-      else if (e.type === 'network' || e.type === 'server-error' || e.type === 'socket-error' || e.type === 'socket-closed') this.failJoin('Could not reach the connection service. Check your internet and try again.');
-      else this.failJoin('Could not connect. Try the link again.');
+      if (this.peer !== peer || this.players.size > 0) return;
+      if (e.type === 'peer-unavailable') invitePossiblyDead = true;
+      useRelay();
     });
   }
 
@@ -237,7 +315,7 @@ export class Net {
     const hadWelcome = this.players.size > 0;
     this.leave();
     if (hadWelcome) this.ev.onHostLost();
-    else this.ev.onFail('The connection dropped before you got in. Try the link again.');
+    else this.ev.onFail('No answer. Your friend may have closed the game, or the connection may be blocked on one of your networks.');
   }
 
   private fromHost(m: Msg) {
@@ -249,6 +327,10 @@ export class Net {
         break;
       case 'welcome': {
         window.clearTimeout(this.joinTimer);
+        if (MAP_ORDER.includes(m.map) && m.map !== MAP.id) {
+          this.ev.onWrongMap(m.map);
+          return;
+        }
         this.myId = String(m.id);
         this.slot = Math.floor(Math.min(MAX_PLAYERS - 1, Math.max(0, Number(m.slot) || 0)));
         for (const raw of Array.isArray(m.players) ? m.players : []) {
@@ -378,8 +460,14 @@ export class Net {
     window.clearTimeout(this.joinTimer);
     const old = [...this.players.values()];
     this.players.clear();
+    const conn = this.hostConn;
     this.conns.clear();
     this.hostConn = null;
+    conn?.close();
+    this.hub?.close();
+    this.hub = null;
+    this.guestRelay = null;
+    this.route = 'direct';
     const peer = this.peer;
     this.peer = null;
     this.role = 'solo';
