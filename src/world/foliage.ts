@@ -383,8 +383,19 @@ export function makeTrees(): THREE.Group {
   ];
   for (const [x, z, k, s] of heroes) {
     const y = groundY(x, z) - 0.15;
-    const inst: TreeInstance = { x, z, y, s, rot: rnd() * 6.28, lo: k === 'p' ? pineLo() : roundLo(), hi: k === 'p' ? pineHi() : roundHi() };
-    (k === 'p' ? pinesNear : roundNear).push(inst);
+    const tall = k === 'p' || TR.heroesTall;
+    const inst: TreeInstance = { x, z, y, s, rot: rnd() * 6.28, lo: tall ? pineLo() : roundLo(), hi: tall ? pineHi() : roundHi() };
+    (tall ? pinesNear : roundNear).push(inst);
+  }
+
+  // Coconut palms leaning out along the top of the beach.
+  for (let i = 0; i < TR.beachPalms * 12 && pinesNear.length < TR.beachPalms + heroes.length; i++) {
+    const x = 6 + rnd() * 74;
+    const z = -210 + rnd() * 420;
+    if (keepClear(x, z)) continue;
+    const y = groundY(x, z);
+    if (y < 0.9 || y > 7 || slopeAt(x, z, 1.5) > 0.45) continue;
+    pinesNear.push({ x, z, y: y - 0.15, s: 0.72 + rnd() * 0.5, rot: rnd() * 6.28, lo: pineLo(), hi: pineHi() });
   }
 
   const near = (x: number, z: number) => x > -20 && x < 210 && Math.abs(z) < 140;
@@ -427,8 +438,9 @@ export function makeTrees(): THREE.Group {
   const tallTree = TR.tall === 'palm' ? palmTree : TR.tall === 'spruce' ? spruceTree : pineTree;
   const pineHiGeo = tallTree(treeRnd, 1);
   const pineLoGeo = tallTree(treeRnd, 0.07);
-  const roundHiGeo = roundTree(treeRnd, 1);
-  const roundLoGeo = roundTree(treeRnd, 0.07);
+  const otherTree = TR.round === 'larch' ? spruceTree : roundTree;
+  const roundHiGeo = otherTree(treeRnd, 1);
+  const roundLoGeo = otherTree(treeRnd, 0.07);
   const shrubGeo = shrub(treeRnd);
 
   // Near trees show their full dabs in the main view. Everything else, including the reflection and
@@ -695,7 +707,7 @@ export function makeGrass(): THREE.Group {
 
   // Reeds stand in the shallows either side of the beach. They reflect, and they catch the low sun.
   const reeds: Blade[] = [];
-  for (let i = 0; i < 90000 * Math.max(Q.grass, 0.35); i++) {
+  for (let i = 0; i < 90000 * Math.max(Q.grass, 0.35) * MAP.trees.reeds; i++) {
     const x = -150 + rnd() * 240;
     const z = -240 + rnd() * 480;
     if (Math.abs(z) < 14 && x < JETTY.startX) continue;

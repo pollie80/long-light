@@ -1,4 +1,5 @@
 // What moves on its own: smoke, mist, fireflies, motes, birds, jumping fish, buoys, a far sail, a cat.
+import { MAP } from './maps';
 import * as THREE from 'three';
 import { Builder, solid, TRS } from './builder';
 import { DECK_Y, groundY, JETTY, MAGIC_SPOTS, slopeAt, swellAt } from './land';
@@ -324,6 +325,7 @@ export class Life {
       });
       this.beam = new THREE.Mesh(geo, this.beamMat);
       this.beam.position.copy(lampPos);
+      this.beam.visible = MAP.props.beacon;
       this.beam.frustumCulled = false;
       this.beam.layers.set(L.CLEAR);
       this.group.add(this.beam);

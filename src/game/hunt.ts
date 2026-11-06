@@ -34,7 +34,7 @@ const KINDS: Record<string, BirdKind[]> = {
   canada: [
     { name: 'Canada Goose', body: 0x8a7c68, wing: 0x5e5244, head: 0x1a1a1a, bill: 0x1a1a1a, size: 1.5, speed: 10, flock: [5, 9] },
     { name: 'Common Loon', body: 0x2a2c30, wing: 0x1e2024, head: 0x14181a, bill: 0x20242a, size: 1.1, speed: 12, flock: [1, 3] },
-    { name: 'Mallard', body: 0x8a7a64, wing: 0x6a5c4c, head: 0x1f6a48, bill: 0xd9a62e, size: 1, speed: 11, flock: [3, 6] },
+    { name: "Clark's Nutcracker", body: 0x9a9a98, wing: 0x26262a, head: 0xa8a8a6, bill: 0x20242a, size: 0.66, speed: 13, flock: [2, 4] },
   ],
 };
 

@@ -3,7 +3,7 @@
 // where its owner is.
 import * as THREE from 'three';
 import { clamp, damp } from '../core/noise';
-import { paintedMaterial } from '../render/shared';
+import { L, paintedMaterial } from '../render/shared';
 import { Builder, solid, TRS } from '../world/builder';
 import { DECK_Y, groundY, JETTY, onJetty } from '../world/land';
 import type { Boat } from './boat';
@@ -16,11 +16,13 @@ export interface PetOwner {
   inBoat: boolean;
   air: boolean;
   boat: Boat;
+  /** Being patted: comes to the owner's front, sits, and enjoys it. */
+  patting: boolean;
 }
 
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 const FLYERS = new Set(['parrot', 'dragon']);
-const NAMES: Record<string, string> = { dog: 'dog', cat: 'cat', parrot: 'parrot', duck: 'duck', capybara: 'capybara', turtle: 'turtle', dragon: 'dragon', rock: 'rock' };
+const NAMES: Record<string, string> = { dog: 'dog', cat: 'cat', parrot: 'parrot', duck: 'duck', capybara: 'capybara', turtle: 'turtle', dragon: 'dragon', rock: 'rock', potato: 'potato', toast: 'toast', shark: 'shark' };
 
 interface Parts {
   body: THREE.BufferGeometry;
@@ -113,7 +115,36 @@ function build(kind: string, col: number): Parts {
       const wing = B().box(0.24, 0.012, 0.15, dark, TRS(0.12, 0, 0), {}, 0.005);
       return { body: body.build(), head: head.build(), headAt: [0, 0.07, -0.19], tail: tail.build(), tailAt: [0, 0, 0.14], wing: wing.build(), wingsAt: [[-0.05, 0.05, 0], [0.05, 0.05, 0]], stand: 0, sit: 0, gait: 'fly' };
     }
-    case 'rock': {
+    case 'toast': {
+      // Golden in the middle, a little too dark round the edge, and on two tiny legs for some reason.
+      const body = B().box(0.3, 0.32, 0.075, 0x8a5a2a, TRS(0, 0, 0), { jit: 0.03 }, 0.03);
+      body.box(0.26, 0.28, 0.08, 0xd8a860, TRS(0, 0, 0), { jit: 0.05 }, 0.02);
+      const head = B();
+      for (const s of [-1, 1]) {
+        head.sphere(0.03, 0xffffff, TRS(s * 0.05, 0, 0), { emis: 0.1 }, 8, 6);
+        head.sphere(0.013, 0x101010, TRS(s * 0.05, -0.004, -0.026), {}, 6, 4);
+      }
+      head.box(0.05, 0.01, 0.01, 0x301a10, TRS(0, -0.07, -0.01), {}, 0.003);
+      const leg = B().cyl(0.012, 0.012, 0.13, 0x201a14, TRS(0, -0.065, 0), {}, 5);
+      leg.box(0.05, 0.016, 0.07, 0x201a14, TRS(0, -0.13, -0.02), {}, 0.005);
+      return { body: body.build(), head: head.build(), headAt: [0, 0.03, -0.045], leg: leg.build(), legsAt: [[-0.07, -0.15, 0], [0.07, -0.15, 0]], stand: 0.3, sit: 0.3, gait: 'waddle' };
+    }
+    case 'shark': {
+      const body = B().sphere(0.19, 0x7a8894, TRS(0, 0, 0, 0, 0, 0, 0.72, 0.72, 2.3), { jit: 0.03 });
+      body.sphere(0.17, 0xe8ecec, TRS(0, -0.055, -0.02, 0, 0, 0, 0.62, 0.45, 2.1), {}, 12, 8);
+      body.add(new THREE.ConeGeometry(0.1, 0.24, 3), 0x6a7884, TRS(0, 0.21, 0, 0, 0, 0, 0.35, 1, 1));
+      for (const s of [-1, 1]) body.add(new THREE.ConeGeometry(0.07, 0.22, 3), 0x6a7884, TRS(s * 0.16, -0.05, -0.1, 0, 0, -s * 1.9, 1, 1, 0.3));
+      const head = B().sphere(0.13, 0x7a8894, TRS(0, 0, -0.02, 0, 0, 0, 0.92, 0.74, 1.3), {});
+      head.box(0.15, 0.03, 0.05, 0x241a1a, TRS(0, -0.05, -0.15), {}, 0.01);
+      for (let i = 0; i < 6; i++) head.add(new THREE.ConeGeometry(0.012, 0.03, 3), 0xffffff, TRS(-0.06 + i * 0.024, -0.033, -0.168, Math.PI, 0, 0));
+      eyes(head, 0.1, 0.025, -0.11, 0.016);
+      const tail = B().add(new THREE.ConeGeometry(0.12, 0.3, 3), 0x6a7884, TRS(0, 0.04, 0.12, Math.PI / 2 + 0.5, 0, 0, 0.3, 1, 1));
+      const leg = B().cyl(0.018, 0.016, 0.14, 0x3a3e44, TRS(0, -0.07, 0), {}, 6);
+      leg.box(0.05, 0.02, 0.08, 0x8a2a22, TRS(0, -0.14, -0.015), {}, 0.006);
+      return { body: body.build(), head: head.build(), headAt: [0, 0.02, -0.4], tail: tail.build(), tailAt: [0, 0.02, 0.4], leg: leg.build(), legsAt: [[-0.08, -0.1, -0.16], [0.08, -0.1, -0.16], [-0.08, -0.1, 0.18], [0.08, -0.1, 0.18]], stand: 0.24, sit: 0.2, gait: 'plod' };
+    }
+    case 'rock':
+    case 'potato': {
       const geo = new THREE.IcosahedronGeometry(0.14, 2);
       const p = geo.attributes.position;
       for (let i = 0; i < p.count; i++) {
@@ -121,7 +152,8 @@ function build(kind: string, col: number): Parts {
         p.setXYZ(i, p.getX(i) * k, p.getY(i) * k * 0.8, p.getZ(i) * k * 1.1);
       }
       geo.computeVertexNormals();
-      const body = B().add(geo, c, undefined, { jit: 0.05 });
+      const body = B().add(geo, kind === 'potato' ? 0x9a7a4a : c, kind === 'potato' ? TRS(0, 0, 0, 0, 0, 0, 0.95, 0.92, 1.4) : undefined, { jit: 0.05 });
+      if (kind === 'potato') for (let i = 0; i < 9; i++) body.sphere(0.012, 0x6a5230, TRS(Math.cos(i * 2.4) * 0.11, Math.sin(i * 1.7) * 0.09, Math.sin(i * 2.4) * 0.15), {}, 5, 4);
       const head = B();
       for (const s of [-1, 1]) {
         head.sphere(0.042, 0xffffff, TRS(s * 0.045, 0, 0), { emis: 0.1 }, 10, 8);
@@ -176,9 +208,29 @@ export class Pet {
   private ownerWasAir = false;
   private rideK = 1;
   private scene: THREE.Object3D | null = null;
+  private patK = 0;
+  private hearts: THREE.Mesh[] = [];
+  private heartT: number[] = [];
+  private heartMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.6, 0.32, 0.42), side: THREE.DoubleSide });
+  private seatTmp = new THREE.Vector3();
 
   constructor(look: CharacterLook) {
     this.root.add(this.rig);
+    const heart = new THREE.Shape();
+    heart.moveTo(0, -0.05);
+    heart.bezierCurveTo(-0.09, 0.0, -0.07, 0.065, -0.03, 0.065);
+    heart.bezierCurveTo(-0.012, 0.065, 0, 0.05, 0, 0.04);
+    heart.bezierCurveTo(0, 0.05, 0.012, 0.065, 0.03, 0.065);
+    heart.bezierCurveTo(0.07, 0.065, 0.09, 0.0, 0, -0.05);
+    const heartGeo = new THREE.ShapeGeometry(heart, 6);
+    for (let i = 0; i < 5; i++) {
+      const m = new THREE.Mesh(heartGeo, this.heartMat);
+      m.layers.set(L.MAIN_ONLY);
+      m.visible = false;
+      this.root.add(m);
+      this.hearts.push(m);
+      this.heartT.push(-1);
+    }
     this.applyLook(look);
   }
 
@@ -188,6 +240,14 @@ export class Pet {
 
   worldPos(out = new THREE.Vector3()): THREE.Vector3 {
     return this.root.getWorldPosition(out);
+  }
+
+  /** The top of its head, where a hand goes. */
+  headTop(out = new THREE.Vector3()): THREE.Vector3 {
+    if (this.head) this.head.getWorldPosition(out);
+    else this.root.getWorldPosition(out);
+    out.y += (this.parts?.gait === 'fly' ? 0.05 : 0.1) * this.size;
+    return out;
   }
 
   /** A pat: delight, for a moment. */
@@ -214,7 +274,7 @@ export class Pet {
     this.wings = [];
     this.parts = null;
     this.rig.clear();
-    this.name = NAMES[kind] ?? '';
+    this.name = kind === 'potato' ? 'potato' : NAMES[kind] ?? '';
     if (kind === 'none') {
       this.root.visible = false;
       return;
@@ -272,6 +332,12 @@ export class Pet {
     if (o.air && !this.ownerWasAir && this.hop <= 0) this.hopV = 2.6;
     this.ownerWasAir = o.air;
     this.happy = Math.max(0, this.happy - dt);
+    this.patK = damp(this.patK, o.patting ? 1 : 0, 6, dt);
+    if (o.patting) {
+      this.happy = Math.max(this.happy, 0.5);
+      this.idleT = Math.max(this.idleT, 2);
+    }
+    this.updateHearts(dt, t, o.patting);
     if (flying) this.updateFlyer(dt, t, o);
     else if (o.inBoat) this.updateRider(dt, o);
     else this.updateWalker(dt, t, o);
@@ -280,13 +346,13 @@ export class Pet {
 
   private updateFlyer(dt: number, t: number, o: PetOwner) {
     if (this.riding) this.dismount();
-    // Flutters about at shoulder height, out to one side and a little behind.
+    // Flutters about at shoulder height, out to one side and a little behind; in front when it's being patted.
     const side = 0.62 + Math.sin(t * 0.37) * 0.14;
     const c = Math.cos(o.facing);
     const s = Math.sin(o.facing);
-    const tx = o.pos.x + c * side + s * 0.3;
-    const tz = o.pos.z - s * side + c * 0.3;
-    const ty = o.pos.y + (o.inBoat ? 1.35 : 1.75) + Math.sin(t * 1.3) * 0.08;
+    const tx = o.patting ? o.pos.x - s * 0.56 : o.pos.x + c * side + s * 0.3;
+    const tz = o.patting ? o.pos.z - c * 0.56 : o.pos.z - s * side + c * 0.3;
+    const ty = o.pos.y + (o.patting ? 0.95 : o.inBoat ? 1.35 : 1.75) + Math.sin(t * 1.3) * (o.patting ? 0.02 : 0.08);
     if (!this.placed || Math.hypot(tx - this.x, tz - this.z) > 40) {
       this.x = tx;
       this.y = ty;
@@ -319,9 +385,10 @@ export class Pet {
       this.placed = false;
     }
     this.rideK = Math.min(1, this.rideK + dt * 2.4);
-    const seat = o.boat.petSeat;
+    const seat = o.boat.petSeatAt(this.patK, this.seatTmp);
     this.root.position.set(seat.x, seat.y + this.parts!.sit * this.size + this.hop, seat.z);
-    this.root.rotation.set(0, 0, 0);
+    // Turns round to face whoever's patting it.
+    this.root.rotation.set(0, Math.PI * this.patK, 0);
     this.speed = 0;
     this.sitK = damp(this.sitK, 1, 5, dt);
     this.idleT = 0;
@@ -335,8 +402,8 @@ export class Pet {
     const c = Math.cos(o.facing);
     const s = Math.sin(o.facing);
     // Just behind and to one side, and to the middle if that side is off the jetty.
-    let tx = o.pos.x + c * 0.8 + s * 0.85;
-    let tz = o.pos.z - s * 0.8 + c * 0.85;
+    let tx = o.patting ? o.pos.x - s * 0.66 : o.pos.x + c * 0.8 + s * 0.85;
+    let tz = o.patting ? o.pos.z - c * 0.66 : o.pos.z - s * 0.8 + c * 0.85;
     if (onJetty(o.pos.x, o.pos.z)) {
       tz = clamp(tz, -JETTY.halfWidth + 0.3, JETTY.halfWidth - 0.3);
       tx = clamp(tx, JETTY.endX + 0.3, JETTY.startX + 3);
@@ -352,7 +419,7 @@ export class Pet {
     const dx = tx - this.x;
     const dz = tz - this.z;
     const dist = Math.hypot(dx, dz);
-    const follow = dist > 0.55 && (this.speed > 0.1 || dist > 1.1);
+    const follow = o.patting ? dist > 0.1 : dist > 0.55 && (this.speed > 0.1 || dist > 1.1);
     // It can always keep up, however fast you've set yourself to walk.
     const gaitBase = this.parts!.gait === 'plod' ? 1.9 : this.parts!.gait === 'hop' ? 1.8 : 3.4;
     const want = follow ? Math.min(Math.max(gaitBase, o.speed * 1.25), 0.8 + dist * 2.6) : 0;
@@ -382,6 +449,29 @@ export class Pet {
     this.root.position.set(this.x, this.y + lift * this.size + this.hop, this.z);
     this.root.rotation.set(0, this.yaw, 0);
     void t;
+  }
+
+  private updateHearts(dt: number, t: number, patting: boolean) {
+    for (let i = 0; i < this.hearts.length; i++) {
+      const h = this.hearts[i];
+      if (this.heartT[i] < 0) {
+        h.visible = false;
+        // A new heart every so often, while the patting lasts.
+        if (patting && Math.sin(t * 4.1 + i * 2.5) > 0.992) this.heartT[i] = 0;
+        continue;
+      }
+      this.heartT[i] += dt;
+      const k = this.heartT[i] / 1.5;
+      if (k >= 1) {
+        this.heartT[i] = -1;
+        h.visible = false;
+        continue;
+      }
+      h.visible = true;
+      h.position.set(Math.sin(i * 2.1 + k * 4) * 0.13, 0.32 + k * 0.62, Math.cos(i * 1.7) * 0.1);
+      h.rotation.y = -this.root.rotation.y + Math.sin(t * 2 + i) * 0.5;
+      h.scale.setScalar(Math.sin(Math.min(1, k * 2.2) * Math.PI * 0.5) * (1 - k * k) * 1.5);
+    }
   }
 
   private animate(dt: number, t: number, flying: boolean, o: PetOwner) {

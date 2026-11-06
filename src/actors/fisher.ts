@@ -29,6 +29,9 @@ export interface PoseInput {
   air?: boolean; // off the ground, jumping
   gun?: boolean; // shotgun at the shoulder, pointing along rodDir
   recoil?: number; // 1 the instant it fires, falling to 0
+  pat?: number; // 0 upright, 1 crouched over the pet with a hand on it
+  patAt?: THREE.Vector3; // the top of the pet's head, in world space
+  cheers?: number; // 0 to 1, bottle raised to clink
 }
 
 const Y_NEG = new THREE.Vector3(0, -1, 0);
@@ -336,14 +339,15 @@ export class Fisher {
 
     if (!sitting) {
       const bob = Math.abs(Math.cos(ph)) * 0.03 * walkAmt;
-      this.hips.position.y = 0.96 + bob * (1 - air) - 0.012 * walkAmt - land * 0.06;
+      const crouch = pose.pat ?? 0;
+      this.hips.position.y = 0.96 + bob * (1 - air) - 0.012 * walkAmt - land * 0.06 - crouch * 0.4;
       this.hips.rotation.set(0, Math.sin(ph) * 0.05 * walkAmt, Math.sin(ph) * 0.03 * walkAmt);
-      this.spine.rotation.set(-0.05 - walkAmt * 0.09 + breathe - air * 0.1 - land * 0.22, -Math.sin(ph) * 0.1 * stride, -Math.sin(ph) * 0.02 * stride);
-      this.thigh[0].rotation.set(s * 0.58 * stride + air * 0.85 + land * 0.4, 0, -0.02);
-      this.thigh[1].rotation.set(-s * 0.58 * stride + air * 0.5 + land * 0.4, 0, 0.02);
+      this.spine.rotation.set(-0.05 - walkAmt * 0.09 + breathe - air * 0.1 - land * 0.22 - crouch * 0.72, -Math.sin(ph) * 0.1 * stride, -Math.sin(ph) * 0.02 * stride);
+      this.thigh[0].rotation.set(s * 0.58 * stride + air * 0.85 + land * 0.4 + crouch * 1.28, 0, -0.02);
+      this.thigh[1].rotation.set(-s * 0.58 * stride + air * 0.5 + land * 0.4 + crouch * 1.1, 0, 0.02);
       const knee = (x: number) => -(0.1 + 0.85 * Math.max(0, Math.sin(x - 0.9)) * stride);
-      this.shin[0].rotation.set(knee(ph + Math.PI) - air * 1.25 - land * 0.7, 0, 0);
-      this.shin[1].rotation.set(knee(ph) - air * 0.95 - land * 0.7, 0, 0);
+      this.shin[0].rotation.set(knee(ph + Math.PI) - air * 1.25 - land * 0.7 - crouch * 2.0, 0, 0);
+      this.shin[1].rotation.set(knee(ph) - air * 0.95 - land * 0.7 - crouch * 1.7, 0, 0);
     } else if (pose.mode === 'row' || pose.mode === 'boatSit') {
       this.hips.position.y = 0.53 / this.k;
       const lean = pose.mode === 'row' ? pose.rowLean ?? 0 : -0.1;
@@ -373,6 +377,8 @@ export class Fisher {
     }
 
     this.spine.rotation.x += (pose.beerLift ?? 0) * 0.07;
+    // Sitting down, there's only leaning over to do.
+    if (sitting) this.spine.rotation.x -= (pose.pat ?? 0) * 0.62;
     this.root.updateMatrixWorld(true);
 
     // Arms and rod.
@@ -455,8 +461,27 @@ export class Fisher {
       }
     }
 
+    // A hand on the pet, stroking from the head down its neck. It goes over whatever that arm was doing.
+    const patK = pose.pat ?? 0;
+    if (patK > 0.01 && pose.patAt) {
+      const sh = this.shoulderWorld(0, new THREE.Vector3());
+      const rest = sh.clone().addScaledVector(worldUp, -0.5).addScaledVector(fwd, 0.14);
+      const stroke = Math.sin(t * 4.6);
+      const at = pose.patAt.clone().addScaledVector(fwd, stroke * 0.07).addScaledVector(worldUp, 0.015 + Math.max(0, Math.cos(t * 4.6)) * 0.035);
+      this.reach(0, rest.lerp(at, patK * patK * (3 - 2 * patK)), new THREE.Vector3().copy(right).multiplyScalar(-0.8).addScaledVector(worldUp, 0.1));
+    }
+
+    // Glass up: arm out and high, for the clink.
+    const cheersK = pose.cheers ?? 0;
+    if (cheersK > 0.01) {
+      const sh = this.shoulderWorld(0, new THREE.Vector3());
+      const rest = new THREE.Vector3(0, -FO_LEN - 0.03, 0).applyMatrix4(this.fore[0].matrixWorld);
+      const up = sh.clone().addScaledVector(fwd, 0.42).addScaledVector(worldUp, 0.34).addScaledVector(right, 0.12);
+      this.reach(0, rest.lerp(up, cheersK * cheersK * (3 - 2 * cheersK)), new THREE.Vector3().copy(right).multiplyScalar(-0.85).addScaledVector(worldUp, -0.55));
+    }
+
     // The bottle: out of the basket, up to the mouth, tipped back.
-    const beerOut = pose.beerOut ?? 0;
+    const beerOut = Math.max(pose.beerOut ?? 0, cheersK);
     const beerLift = pose.beerLift ?? 0;
     this.bottle.visible = beerOut > 0.02;
     if (this.bottle.visible) {
@@ -467,7 +492,7 @@ export class Fisher {
       const atMouth = new THREE.Vector3().copy(mouth).addScaledVector(fwd, 0.155).addScaledVector(right, -0.03).addScaledVector(worldUp, -0.015);
       const target = atChest.lerp(atMouth, lift);
       const hand = new THREE.Vector3(0, -FO_LEN - 0.03, 0).applyMatrix4(this.fore[0].matrixWorld);
-      hand.lerp(target, k);
+      hand.lerp(target, cheersK > 0.01 ? 0 : k);
       this.reach(0, hand, new THREE.Vector3().copy(right).multiplyScalar(-0.85).addScaledVector(worldUp, -0.55));
       const axis = new THREE.Vector3().copy(worldUp).lerp(new THREE.Vector3().copy(fwd).multiplyScalar(-0.93).addScaledVector(right, 0.06).addScaledVector(worldUp, -0.2), lift).normalize();
       const worldQ = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis);

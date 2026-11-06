@@ -1,7 +1,7 @@
 // HTML overlay: title, prompts, catch card, journal, menu. Reads and writes game state through callbacks.
 import './styles.css';
 import { clockLabel, sunDir } from '../core/time';
-import { SPECIES, Species } from '../game/fishdata';
+import { SPECIES, Species, TIER_LABEL, TIERS, Tier } from '../game/fishdata';
 import { paintFish } from '../game/fishart';
 import { BOAT_PANEL, LOOK_PANEL, PET_PANEL, Wardrobe, WardrobeHooks, WardrobePanel } from './wardrobe';
 import { ICON } from './icons';
@@ -10,6 +10,9 @@ import { Q, QUALITIES, QUALITY_ORDER, QualityId } from '../core/quality';
 import coveImg from '../../assets/place-cove.jpg?inline';
 import philippinesImg from '../../assets/place-philippines.jpg?inline';
 import canadaImg from '../../assets/place-canada.jpg?inline';
+
+/** Filled stars for a tier, so rarity reads at a glance and without relying on colour. */
+const tierStars = (t: Tier) => '★'.repeat(TIERS.indexOf(t) + 1) + '☆'.repeat(TIERS.length - 1 - TIERS.indexOf(t));
 
 const PLACE_IMG: Record<MapId, string> = { cove: coveImg, philippines: philippinesImg, canada: canadaImg };
 
@@ -139,6 +142,7 @@ export class UI {
       <div id="charge" class="fade hidden"><i></i></div>
       <div id="card" class="paper hidden">
         <div class="kicker" id="cKick"></div>
+        <div class="tier" id="cTier"></div>
         <h2 id="cName"></h2>
         <div id="cArt"></div>
         <div class="verse" id="cVerse"></div>
@@ -236,7 +240,8 @@ export class UI {
           <div class="keyRow"><span><kbd>E</kbd></span>Use what is nearby</div>
           <div class="keyRow"><span><kbd>Space</kbd> hold or <kbd>Click</kbd></span>Cast, hook, reel</div>
           <div class="keyRow"><span><kbd>B</kbd></span>Have a beer</div>
-          <div class="keyRow"><span><kbd>P</kbd></span>Pat your pet</div>
+          <div class="keyRow"><span><kbd>P</kbd></span>Pat your pet, ashore or afloat</div>
+          <div class="keyRow"><span><kbd>C</kbd> near a friend</span>Cheers, with fireworks</div>
           <div class="keyRow"><span><kbd>G</kbd></span>Shotgun in or out</div>
           <div class="keyRow"><span><kbd>Click</kbd> with shotgun</span>Fire</div>
           <h4>Other</h4>
@@ -472,6 +477,9 @@ export class UI {
     }
     el('cKick').textContent = first ? 'new in the journal' : count > 1 ? `the ${count === 2 ? 'second' : count === 3 ? 'third' : `${count}th`} one of these` : '';
     el('cName').textContent = sp.name;
+    const tier = el('cTier');
+    tier.className = `tier tier-${sp.tier}`;
+    tier.innerHTML = `<span>${tierStars(sp.tier)}</span> ${TIER_LABEL[sp.tier]}`;
     const art = el('cArt');
     art.innerHTML = '';
     const canvas = document.createElement('canvas');
@@ -496,7 +504,11 @@ export class UI {
     for (const sp of SPECIES) {
       const e = j[sp.id];
       const slot = document.createElement('div');
-      slot.className = 'jslot';
+      slot.className = `jslot tier-${sp.tier}`;
+      const stars = document.createElement('i');
+      stars.className = 'jstars';
+      stars.textContent = tierStars(sp.tier);
+      slot.appendChild(stars);
       const src = this.fishPainting(sp, !e, 372, 198);
       const c = document.createElement('canvas');
       c.width = src.width;

@@ -90,6 +90,12 @@ export class Boat {
 
   /** Where a pet sits, in the boat's own space. */
   petSeat = new THREE.Vector3(0, 0.46, -1.05);
+  private petSeatBase = new THREE.Vector3(0, 0.46, -1.05);
+  /** The pet comes closer to be patted, along the middle of the boat. */
+  petSeatAt(patting: number, out: THREE.Vector3): THREE.Vector3 {
+    return out.copy(this.petSeatBase).setZ(this.petSeatBase.z + (0.58 - 0.0) * patting);
+  }
+
   /** Lantern colour, for the light it throws. */
   lanternRGB = new THREE.Color(1.0, 0.55, 0.2);
   private hullMesh: THREE.Mesh | null = null;
@@ -247,6 +253,27 @@ export class Boat {
       sternY = 0.25;
       sternZ = 1.7;
       this.petSeat.set(0, 0.27, -1.05);
+    } else if (style === 'pizza') {
+      // A large pizza, somehow seaworthy. Hull colour is the sauce; the rest is not negotiable.
+      b.cyl(2.05, 2.0, 0.26, 0xd8a860, TRS(0, 0.08, 0), { jit: 0.04 }, 28);
+      b.add(new THREE.TorusGeometry(2.0, 0.13, 8, 34), 0xc48a44, TRS(0, 0.22, 0, Math.PI / 2, 0, 0), { jit: 0.05 });
+      b.cyl(1.88, 1.88, 0.03, 0xb8362a, TRS(0, 0.225, 0), {}, 28);
+      b.cyl(1.82, 1.82, 0.03, 0xf0d060, TRS(0, 0.245, 0), { jit: 0.05 }, 28);
+      for (let i = 0; i < 16; i++) {
+        const a = i * 2.39996;
+        const r = 0.55 + (i % 4) * 0.34;
+        b.cyl(0.2, 0.2, 0.025, 0xa83226, TRS(Math.cos(a) * r, 0.27, Math.sin(a) * r), { jit: 0.1 }, 12);
+      }
+      b.box(0.5, 0.14, 0.36, 0xb1926c, TRS(0, 0.33, 0), { jit: 0.1 }, 0.02);
+      lockX = 1.5;
+      lockY = 0.32;
+      lockZ = 0.42;
+      bowY = 0.3;
+      bowZ = -1.9;
+      sternX = -0.72;
+      sternY = 0.25;
+      sternZ = 1.45;
+      this.petSeat.set(0, 0.3, -1.05);
     } else {
       // The bathtub, enamelled, on four claw feet that are no help at all.
       b.lathe([[0, 0.05], [0.7, 0.05], [0.84, 0.3], [0.88, 0.62], [0.95, 0.66], [0.95, 0.72], [0.82, 0.7], [0.74, 0.3], [0.62, 0.16], [0, 0.16]], hullCol, TRS(0, 0, 0, 0, 0, 0, 1, 1, 2.1), { jit: 0.03 }, 24);
@@ -265,6 +292,7 @@ export class Boat {
     }
     if (hasHull) this.petSeat.set(0, 0.46, -1.05);
     if (style === 'tub') this.petSeat.set(0, 0.2, -1.05);
+    this.petSeatBase.copy(this.petSeat);
 
     // Oarlocks stand wherever the oars do.
     for (const side of [-1, 1]) b.box(0.04, 0.1, 0.04, 0x2a2a30, TRS(lockX * side, lockY + 0.06, lockZ), {}, 0.01);
@@ -323,6 +351,13 @@ export class Boat {
         b.sphere(0.024, 0xf2c12e, TRS(s * 0.095, y + 0.92, z - 0.44), { emis: 0.6 }, 6, 4);
       }
       for (let i = 0; i < 3; i++) b.add(new THREE.ConeGeometry(0.03, 0.1, 4), 0xb5392e, TRS(0, y + 0.42 + i * 0.2, z + 0.02 - i * 0.04, 0.2, 0, 0));
+    } else if (kind === 'flamingo') {
+      const pink = 0xf08ab0;
+      b.sphere(0.32, pink, TRS(0, y + 0.1, z + 0.14, 0, 0, 0, 0.9, 0.7, 1.35), { jit: 0.03 });
+      b.tube([v(0, y + 0.1, z - 0.18), v(0, y + 0.55, z - 0.34), v(0, y + 1.0, z - 0.14), v(0, y + 1.15, z - 0.36)], 0.075, pink, {}, 18, 8);
+      b.sphere(0.12, pink, TRS(0, y + 1.17, z - 0.38));
+      b.add(new THREE.ConeGeometry(0.05, 0.2, 7), 0x2a2a2a, TRS(0, y + 1.1, z - 0.53, -2.1, 0, 0));
+      for (const s of [-1, 1]) b.sphere(0.018, 0x15110f, TRS(s * 0.09, y + 1.2, z - 0.42), {}, 6, 4);
     } else if (kind === 'skull') {
       b.box(0.05, 0.42, 0.05, 0x5a4230, TRS(0, y + 0.18, z + 0.04), {}, 0.01);
       b.sphere(0.15, 0xe9e2cf, TRS(0, y + 0.47, z + 0.02));
@@ -352,6 +387,9 @@ export class Boat {
     if (kind === 'rainbow') {
       const cols = [0xc23a2c, 0xe8862a, 0xefcf3a, 0x4f9a48, 0x3e78c8, 0x7a4fb0];
       cols.forEach((c, i) => this.flat(b, [v(0, -i * 0.06), v(0.56, -i * 0.06), v(0.56, -(i + 1) * 0.06), v(0, -(i + 1) * 0.06)], c));
+    } else if (kind === 'sock') {
+      this.flat(b, [v(0.04, 0), v(0.28, 0), v(0.28, -0.3), v(0.56, -0.42), v(0.56, -0.56), v(0.12, -0.56), v(0.04, -0.46)], 0xe8e4d8);
+      this.flat(b, [v(0.04, 0.001), v(0.28, 0.001), v(0.28, -0.07), v(0.04, -0.07)], 0xc23a2c);
     } else if (kind === 'pirate') {
       this.flat(b, [v(0, 0), v(0.56, 0), v(0.56, -0.36), v(0, -0.36)], 0x17140f);
       b.sphere(0.06, 0xe9e2cf, TRS(x + 0.012, top - 0.15, z + 0.28), {}, 8, 6);
@@ -372,7 +410,15 @@ export class Boat {
     const col = kind === 'red' ? 0xa83226 : kind === 'pirate' ? 0x201c1a : 0xe6dcc4;
     const foot = deck + 1.0;
     const v = (dz: number, y: number) => new THREE.Vector3(0.02, y, mastZ + dz);
-    if (kind === 'stripes') {
+    if (kind === 'pants') {
+      // Y-fronts, hoisted with pride: a waistband across the yard, and a leg hole each side.
+      const y0 = foot;
+      const top = deck + h - 0.2;
+      const mid = y0 + (top - y0) * 0.42;
+      this.flat(b, [v(0.03, top), v(2.2, top), v(2.2, mid), v(1.5, y0), v(1.1, y0 + 0.22), v(0.72, y0), v(0.03, mid)], 0xf4f0e6);
+      this.flat(b, [v(0.03, top), v(2.2, top), v(2.2, top - 0.2), v(0.03, top - 0.2)], 0x2f62b8);
+      this.flat(b, [v(0.98, top - 0.24), v(1.24, top - 0.24), v(1.2, y0 + 0.5), v(1.02, y0 + 0.5)], 0xdcd6c8);
+    } else if (kind === 'stripes') {
       const rows = 6;
       for (let i = 0; i < rows; i++) {
         const k0 = i / rows;

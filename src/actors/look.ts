@@ -108,7 +108,7 @@ export const PICKS: PickRow[] = [
   ] },
   { key: 'nose', label: 'nose', group: 'Face', choices: [
     p('default', 'ordinary'), p('button', 'button'), p('long', 'long'), p('hooked', 'hooked'), p('big', 'big and round'),
-    p('clown', 'red ball', true), p('carrot', 'carrot', true), p('pickle', 'pickle', true),
+    p('clown', 'red ball', true), p('carrot', 'carrot', true), p('pickle', 'pickle', true), p('banana', 'a banana', true),
   ] },
   { key: 'ears', label: 'ears', group: 'Face', choices: [
     p('normal', 'ordinary'), p('small', 'small'), p('big', 'big'), p('elf', 'pointed', true), p('huge', 'dumbo', true), p('none', 'none', true),
@@ -119,7 +119,7 @@ export const PICKS: PickRow[] = [
   ] },
   { key: 'inMouth', label: 'in the mouth', group: 'Face', choices: [
     p('none', 'nothing'), p('grass', 'a blade of grass'), p('pipe', 'a pipe'), p('cigar', 'a cigar'),
-    p('rose', 'a rose', true), p('fish', 'a small fish', true), p('gum', 'bubble gum', true),
+    p('rose', 'a rose', true), p('fish', 'a small fish', true), p('gum', 'bubble gum', true), p('kazoo', 'a kazoo', true), p('sausage', 'a whole sausage', true),
   ] },
   { key: 'facialHair', label: 'facial hair', group: 'Hair', choices: [
     p('short', 'short beard'), p('none', 'clean shaven'), p('stubble', 'stubble'), p('moustache', 'moustache'), p('walrus', 'walrus moustache'), p('handlebar', 'handlebar'),
@@ -136,47 +136,47 @@ export const PICKS: PickRow[] = [
   ] },
   { key: 'hat', label: 'hat', group: 'Hat', choices: [
     p('straw', 'straw hat'), p('none', 'no hat'), p('bucket', 'bucket hat'), p('cap', 'flat cap'), p('beanie', 'beanie'), p('souwester', "sou'wester"), p('captain', "captain's hat"), p('cowboy', 'cowboy hat'), p('top', 'top hat'),
-    p('cone', 'traffic cone', true), p('viking', 'viking helmet', true), p('chef', "chef's hat", true), p('party', 'party hat', true), p('propeller', 'propeller beanie', true), p('fish', 'a whole fish', true), p('crown', 'crown', true), p('wizard', 'wizard hat', true), p('sombrero', 'sombrero', true),
+    p('cone', 'traffic cone', true), p('viking', 'viking helmet', true), p('chef', "chef's hat", true), p('party', 'party hat', true), p('propeller', 'propeller beanie', true), p('fish', 'a whole fish', true), p('crown', 'crown', true), p('wizard', 'wizard hat', true), p('sombrero', 'sombrero', true), p('plunger', 'toilet plunger', true), p('lampshade', 'lampshade', true), p('colander', 'colander', true),
   ] },
   { key: 'hatColor', label: 'hat colour', group: 'Hat', colours: true, choices: [
     c('straw', 'straw', 0xe0c684), ...FABRIC.filter((f) => f.id !== 'mustard'),
   ] },
   { key: 'outfit', label: 'wearing', group: 'Clothes', choices: [
     p('coat', 'long coat'), p('jacket', 'short jacket'), p('jumper', 'striped jumper'), p('dungarees', 'dungarees'), p('hoodie', 'hoodie'), p('hawaiian', 'holiday shirt'),
-    p('tux', 'tuxedo', true), p('robe', 'long robe', true), p('tutu', 'tutu', true),
+    p('tux', 'tuxedo', true), p('robe', 'long robe', true), p('tutu', 'tutu', true), p('barrel', 'just a barrel', true), p('box', 'cardboard box', true),
   ] },
   { key: 'coatColor', label: 'main colour', group: 'Clothes', colours: true, choices: FABRIC },
   { key: 'trouserColor', label: 'trousers', group: 'Clothes', colours: true, choices: [FABRIC[2], ...FABRIC.filter((f) => f.id !== 'navy')] },
   { key: 'shoes', label: 'on the feet', group: 'Clothes', choices: [
     p('boots', 'rubber boots'), p('work', 'work boots'), p('sneakers', 'sneakers'), p('sandals', 'sandals'), p('bare', 'bare feet'),
-    p('clown', 'clown shoes', true), p('flippers', 'flippers', true), p('bunny', 'bunny slippers', true),
+    p('clown', 'clown shoes', true), p('flippers', 'flippers', true), p('bunny', 'bunny slippers', true), p('fishfeet', 'two fish', true), p('skis', 'skis', true),
   ] },
   { key: 'shoeColor', label: 'shoe colour', group: 'Clothes', colours: true, choices: [
     c('oxblood', 'oxblood', 0x6a2b28), ...FABRIC,
   ] },
   { key: 'neck', label: 'round the neck', group: 'Clothes', choices: [
     p('scarf', 'scarf'), p('none', 'nothing'), p('bandana', 'bandana'), p('bowtie', 'bow tie'), p('tie', 'necktie'),
-    p('lei', 'flower garland', true), p('boa', 'feather boa', true), p('bigbow', 'an enormous bow', true),
+    p('lei', 'flower garland', true), p('boa', 'feather boa', true), p('bigbow', 'an enormous bow', true), p('toiletseat', 'a toilet seat', true), p('medal', 'participation medal', true),
   ] },
   { key: 'neckColor', label: 'neck colour', group: 'Clothes', colours: true, choices: [
     c('red', 'red', 0xb8392e), ...FABRIC.filter((f) => f.id !== 'red'),
   ] },
   { key: 'back', label: 'on the back', group: 'Clothes', choices: [
     p('creel', 'wicker basket'), p('rucksack', 'rucksack'), p('none', 'nothing'),
-    p('cape', 'cape', true), p('parrot', 'a parrot', true), p('cat', 'a cat', true), p('duck', 'duck ring', true), p('wings', 'wings', true),
+    p('cape', 'cape', true), p('parrot', 'a parrot', true), p('cat', 'a cat', true), p('duck', 'duck ring', true), p('wings', 'wings', true), p('fridge', 'a small fridge', true), p('ladder', 'a ladder, just in case', true),
   ] },
   // The boat.
   { key: 'boatStyle', label: 'kind of boat', group: 'Boat', choices: [
-    p('dinghy', 'rowing dinghy'), p('canoe', 'canoe'), p('bangka', 'outrigger bangka'), p('raft', 'log raft'), p('tub', 'bathtub', true),
+    p('dinghy', 'rowing dinghy'), p('canoe', 'canoe'), p('bangka', 'outrigger bangka'), p('raft', 'log raft'), p('tub', 'bathtub', true), p('pizza', 'large pizza', true),
   ] },
   { key: 'boatFigure', label: 'on the bow', group: 'Boat', choices: [
-    p('none', 'nothing'), p('swan', 'swan'), p('duck', 'rubber duck', true), p('dragon', 'dragon', true), p('skull', 'skull', true),
+    p('none', 'nothing'), p('swan', 'swan'), p('duck', 'rubber duck', true), p('dragon', 'dragon', true), p('skull', 'skull', true), p('flamingo', 'pool flamingo', true),
   ] },
   { key: 'boatSail', label: 'sail', group: 'Boat', choices: [
-    p('none', 'no sail'), p('canvas', 'canvas'), p('red', 'red'), p('stripes', 'striped'), p('pirate', 'black', true),
+    p('none', 'no sail'), p('canvas', 'canvas'), p('red', 'red'), p('stripes', 'striped'), p('pirate', 'black', true), p('pants', 'enormous underpants', true),
   ] },
   { key: 'boatFlag', label: 'flag', group: 'Boat', choices: [
-    p('none', 'no flag'), p('red', 'red pennant'), p('blue', 'blue pennant'), p('rainbow', 'rainbow'), p('pirate', 'pirate', true),
+    p('none', 'no flag'), p('red', 'red pennant'), p('blue', 'blue pennant'), p('rainbow', 'rainbow'), p('pirate', 'pirate', true), p('sock', 'one sock', true),
   ] },
   { key: 'boatHull', label: 'hull', group: 'Colours', colours: true, choices: [
     c('teal', 'sea teal', 0x2f7d80), c('navy', 'navy', 0x24375e), c('red', 'red', 0xa83226), c('white', 'white', 0xe6e0d2), c('yellow', 'yellow', 0xd9a62e),
@@ -197,7 +197,7 @@ export const PICKS: PickRow[] = [
   // The pet.
   { key: 'pet', label: 'companion', group: 'Pet', choices: [
     p('dog', 'dog'), p('cat', 'cat'), p('parrot', 'parrot'), p('duck', 'duck'), p('capybara', 'capybara'), p('turtle', 'turtle'),
-    p('dragon', 'tiny dragon', true), p('rock', 'pet rock', true), p('none', 'no pet'),
+    p('dragon', 'tiny dragon', true), p('rock', 'pet rock', true), p('potato', 'emotional support potato', true), p('toast', 'a slice of toast', true), p('shark', 'land shark', true), p('none', 'no pet'),
   ] },
   { key: 'petColor', label: 'colour', group: 'Pet', colours: true, choices: [
     c('golden', 'golden', 0xc99a50), c('ginger', 'ginger', 0xc4672a), c('brown', 'brown', 0x6e4a2c), c('black', 'black', 0x2a2624), c('white', 'white', 0xece6da), c('grey', 'grey', 0x8a8a88),

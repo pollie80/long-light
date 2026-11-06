@@ -174,6 +174,23 @@ check('and the shot is counted', await until(friend, () => (__ll.game.net.player
 await host.keyboard.press('KeyG');
 await wait(400);
 
+// Cheers: nothing from one bottle, fireworks from two.
+await host.evaluate(() => { __ll.setHour(21.5); });
+await wait(2000);
+const pre = await friend.evaluate(() => __ll.game.fireworks.shows);
+await host.keyboard.press('KeyC');
+await wait(1200);
+check('one raised bottle sets nothing off', (await friend.evaluate(() => __ll.game.fireworks.shows)) === pre);
+check('friend is asked', await until(friend, () => document.querySelector('#prompt').textContent.includes('wants to cheers'), null, 4000), await friend.locator('#prompt').textContent());
+await friend.keyboard.press('KeyC');
+check('two raised bottles set them off for the friend', await until(friend, (n) => __ll.game.fireworks.shows > n, pre, 5000));
+check('and for the host', await until(host, () => __ll.game.fireworks.shows > 0, null, 5000));
+await wait(2200);
+await shot(host, '05b-fireworks');
+await wait(1100);
+await shot(host, '05c-fireworks');
+await wait(5000);
+
 // Clock, both ways.
 await host.evaluate(() => __ll.setHour(9.5));
 check('host moves the sun for everyone', await until(friend, () => Math.abs(__ll.game.hour - 9.5) < 0.1, null, 5000));

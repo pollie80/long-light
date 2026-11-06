@@ -73,3 +73,30 @@ describe.each(MAP_ORDER)('the %s map', (id) => {
     }
   });
 });
+
+describe('how rare a fish is', () => {
+  it('makes rarer tiers come up much less often, on every map', async () => {
+    for (const id of MAP_ORDER) {
+      vi.resetModules();
+      vi.stubGlobal('location', { hash: `#map=${id}` });
+      const fish = await import('./fishdata');
+      const counts: Record<string, number> = { common: 0, uncommon: 0, rare: 0, epic: 0, legendary: 0 };
+      let seed = 7;
+      const rnd = () => {
+        seed = (seed * 1664525 + 1013904223) % 4294967296;
+        return seed / 4294967296;
+      };
+      for (let i = 0; i < 40000; i++) {
+        const zone = (['shallows', 'jetty', 'reef', 'deep'] as const)[i % 4];
+        counts[fish.pickSpecies(zone, rnd() * 24, rnd, () => true).tier] += 1;
+      }
+      expect(counts.common).toBeGreaterThan(counts.uncommon);
+      expect(counts.uncommon).toBeGreaterThan(counts.rare);
+      expect(counts.rare).toBeGreaterThan(counts.epic);
+      expect(counts.epic).toBeGreaterThan(counts.legendary);
+      expect(counts.legendary).toBeGreaterThan(0);
+      expect(counts.legendary / 40000).toBeLessThan(0.01);
+      for (const t of fish.TIERS) expect(fish.SPECIES.some((s) => s.tier === t)).toBe(true);
+    }
+  });
+});

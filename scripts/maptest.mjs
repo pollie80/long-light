@@ -70,6 +70,23 @@ for (const map of only) {
   await page.evaluate(() => { __ll.game.ui.hooks.setRowSpeed(1); __ll.setHour(13); __ll.boatAt(-60, 40, 0.6); __ll.game.yaw = -1.9; __ll.game.pitch = 0.05; });
   await wait(3000);
   await shot('shore');
+  // The buildings and the things that only belong here.
+  await page.evaluate(async () => {
+    const g = __ll.game;
+    if (g.inBoat) g.leaveBoat();
+    await new Promise((f) => setTimeout(f, 1900));
+    __ll.setHour(11);
+    __ll.place(99, -18, -1.2);
+    g.yaw = -1.25;
+    g.pitch = 0.02;
+  });
+  await wait(2500);
+  await shot('house');
+  await page.evaluate(() => { const g = __ll.game; __ll.place(42, 14, 1.9); g.yaw = 1.9; g.pitch = 0.12; __ll.setHour(9.5); });
+  await wait(2500);
+  await shot('beach');
+  await page.evaluate(() => { const g = __ll.game; __ll.board(); });
+  await wait(1800);
   // The picture on the picker.
   await page.evaluate(() => { __ll.setHour(17.9); __ll.boatAt(-40, 12, 1.4); __ll.game.yaw = 1.6; __ll.game.pitch = 0.06; document.getElementById('ui').style.display = 'none'; });
   await wait(3500);

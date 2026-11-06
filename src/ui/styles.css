@@ -57,6 +57,18 @@ kbd { font-family: var(--serif); font-style: normal; font-weight: 500; font-size
 /* Catch */
 #card { position: fixed; right: 5vw; top: 50%; transform: translateY(-50%) rotate(0.7deg); width: min(450px, 38vw); padding: 26px 32px 26px; border-radius: 3px 5px 4px 3px; transition: opacity 0.7s ease, transform 0.7s ease; }
 #card.hidden { transform: translateY(-46%) rotate(2.5deg); }
+/* Rarity: a colour and a count of stars, so it never relies on colour alone. */
+.tier { font: 500 19px var(--serif); letter-spacing: 0.02em; margin-bottom: 2px; }
+.tier span { letter-spacing: 0.1em; font-size: 16px; }
+.tier-common { --tier: #6e6a62; }
+.tier-uncommon { --tier: #3c7d3a; }
+.tier-rare { --tier: #2a62b0; }
+.tier-epic { --tier: #7a3fb0; }
+.tier-legendary { --tier: #b5760c; }
+.tier { color: var(--tier); }
+.tier-legendary.tier { text-shadow: 0 0 10px rgba(240, 180, 40, 0.65); }
+.jstars { font-style: normal; font-size: 12px; letter-spacing: 0.08em; line-height: 1; color: var(--tier); }
+.jslot { border-top: 2px solid var(--tier); }
 #card .kicker { font-family: var(--hand); font-size: 23px; color: #9c4a2c; margin-bottom: 2px; min-height: 26px; }
 #card h2 { font-weight: 500; font-size: 36px; margin: 0; line-height: 1.05; }
 #card canvas { display: block; width: 100%; height: auto; margin: 6px 0 4px; }
@@ -86,11 +98,11 @@ kbd { font-family: var(--serif); font-style: normal; font-weight: 500; font-size
 
 /* Icons and buttons, shared */
 .ic { width: 1.25em; height: 1.25em; flex: none; vertical-align: -0.24em; }
-.pill { display: inline-flex; align-items: center; justify-content: center; gap: 0.45em; font: 500 21px var(--serif); color: var(--light); background: rgba(44, 28, 38, 0.72); border: 1px solid rgba(255, 244, 220, 0.34); border-radius: 999px; padding: 8px 20px 9px; cursor: pointer; backdrop-filter: blur(4px); transition: background 0.15s ease, transform 0.15s ease; }
+.pill { display: inline-flex; align-items: center; justify-content: center; gap: 0.45em; font: 500 21px var(--serif); color: var(--light); background: linear-gradient(rgba(70, 46, 34, 0.86), rgba(44, 28, 26, 0.9)); border: 1px solid rgba(255, 232, 196, 0.3); border-bottom-color: rgba(0, 0, 0, 0.45); border-radius: 4px; padding: 8px 18px 9px; cursor: pointer; backdrop-filter: blur(4px); transition: background 0.15s ease, transform 0.15s ease; }
 .titleBtns .pill { pointer-events: auto; }
 .pill:hover { background: rgba(156, 63, 36, 0.92); transform: translateY(-1px); }
 .pill:disabled { opacity: 0.55; cursor: default; transform: none; }
-.pill.big { font-size: 25px; padding: 11px 30px 12px; background: #9c3f24; border-color: rgba(255, 230, 190, 0.5); }
+.pill.big { font-size: 25px; padding: 11px 30px 12px; background: linear-gradient(#ad4a2a, #8a3620); border-color: rgba(255, 230, 190, 0.5); border-bottom-color: rgba(0, 0, 0, 0.45); }
 .pill.big:hover { background: #b64c2c; }
 .iconBtn { display: inline-flex; align-items: center; gap: 0.4em; background: none; border: 0; padding: 6px 9px; font: 500 18px var(--serif); color: var(--ink); cursor: pointer; border-radius: 6px; }
 .iconBtn:hover, .iconBtn.focus { background: rgba(156, 63, 36, 0.12); color: #9c3f24; }
@@ -203,6 +215,7 @@ kbd { font-family: var(--serif); font-style: normal; font-weight: 500; font-size
 #wBody { flex: 1; min-height: 0; overflow: auto; padding-right: 8px; }
 .wRow { padding: 5px 7px 6px; border-radius: 3px; }
 .wRow.focus { background: rgba(156, 63, 36, 0.09); }
+.wRow label::first-letter, .wRow b::first-letter, .pick span::first-letter { text-transform: uppercase; }
 .wRow label { display: flex; justify-content: space-between; align-items: baseline; font-size: 17px; color: var(--ink-soft); }
 .wRow label b { font-family: var(--hand); font-weight: 500; font-size: 21px; color: #9c4a2c; }
 .pick { display: flex; align-items: center; justify-content: space-between; }

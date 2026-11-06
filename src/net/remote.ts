@@ -36,6 +36,9 @@ export class RemotePlayer {
   private tmp = new THREE.Vector3();
   private tmp2 = new THREE.Vector3();
   private recoil = 0;
+  private patK = 0;
+  private cheersK = 0;
+  private tmp3 = new THREE.Vector3();
   private lastShots = -1;
   onShot: ((at: THREE.Vector3) => void) | null = null;
   private lure = new THREE.Vector3();
@@ -140,6 +143,8 @@ export class RemotePlayer {
       this.onShot?.(this.fisher.gunTip);
     }
     this.recoil = Math.max(0, this.recoil - dt * 6);
+    this.patK = damp(this.patK, s.pat && this.pet.exists ? 1 : 0, 7, dt);
+    this.cheersK = damp(this.cheersK, s.ch ? 1 : 0, 8, dt);
     const fishing = s.fs !== 'idle' && !s.gun;
     const pose: PoseInput = {
       mode: s.mode,
@@ -156,6 +161,9 @@ export class RemotePlayer {
       air: s.air,
       gun: s.gun,
       recoil: this.recoil,
+      pat: this.patK,
+      patAt: s.pat && this.pet.exists ? this.pet.headTop(this.tmp3) : undefined,
+      cheers: this.cheersK,
     };
     this.fisher.update(dt, t, pose);
     this.pet.update(dt, t, {
@@ -165,6 +173,7 @@ export class RemotePlayer {
       inBoat: s.ib,
       air: s.air,
       boat: this.boat,
+      patting: s.pat,
     });
 
     this.updateFishing(t, s, water);

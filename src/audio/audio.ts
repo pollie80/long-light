@@ -619,6 +619,35 @@ export class AudioWorld {
     this.burst(this.noiseBrown, 1.1, 0.11 * v, { type: 'lowpass', f0: 220, f1: 80 }, { delay: 0.8, pan: 0.45 });
   }
 
+  /** Two bottles meeting. */
+  clink() {
+    if (!this.ctx) return;
+    for (const [f, d] of [[3100, 0], [4260, 0.004], [2380, 0.11], [3380, 0.114]] as [number, number][]) {
+      this.burst(this.noisePink, 0.1, 0.34, { type: 'bandpass', f0: f, q: 28 }, { delay: d });
+    }
+  }
+
+  /** A rocket going up, a long way off or close to. */
+  rocket(distance: number) {
+    if (!this.ctx) return;
+    const v = Math.min(0.5, 26 / (distance + 20));
+    this.burst(this.noisePink, 1.0, 0.24 * v, { type: 'bandpass', f0: 900, f1: 3000, q: 3 }, { pan: (Math.random() - 0.5) * 0.7 });
+  }
+
+  /** The burst, late by however long the sound took to get here, then the crackle coming down. */
+  boom(distance: number) {
+    if (!this.ctx) return;
+    const v = Math.min(1, 60 / (distance + 20));
+    const delay = distance / 340;
+    const pan = (Math.random() - 0.5) * 0.8;
+    this.burst(this.noiseBrown, 0.55, 1.15 * v, { type: 'lowpass', f0: 520, f1: 60 }, { delay, pan });
+    this.burst(this.noisePink, 0.05, 0.5 * v, { type: 'highpass', f0: 1300 }, { delay, pan });
+    for (let i = 0; i < 9; i++) {
+      this.burst(this.noisePink, 0.03, 0.1 * v, { type: 'highpass', f0: 3000 }, { delay: delay + 0.45 + Math.random() * 1.4, pan: pan + (Math.random() - 0.5) * 0.4 });
+    }
+    this.burst(this.noiseBrown, 1.4, 0.14 * v, { type: 'lowpass', f0: 240, f1: 70 }, { delay: delay + 0.8, pan: -pan });
+  }
+
   /** The breech closing on two fresh shells. */
   reload() {
     if (!this.ctx) return;

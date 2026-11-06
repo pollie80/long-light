@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { Builder, solid, TRS } from './builder';
 import { BOAT_MOOR, COTTAGE, DECK_Y, groundY, ISLETS, JETTY, pathPoint, PATH_LENGTH } from './land';
 import { MAP } from './maps';
+import { mulberry32 } from '../core/noise';
 import { L, LIT_FRAG, paintedMaterial, U } from '../render/shared';
 import { SPECIMEN_BENCH_TREE } from './foliage';
 
@@ -468,53 +469,246 @@ function buildLighthouse(b: Builder): THREE.Vector3 {
   return new THREE.Vector3(x, y - 0.5 + H + 1.1, z);
 }
 
+/** A thin flat shape, for flags. Points are (along, up) from `at`, in the plane facing along z. */
+function flag(b: Builder, pts: [number, number][], color: number, at: THREE.Vector3, depth = 0.012) {
+  const shape = new THREE.Shape();
+  pts.forEach(([x, y], i) => (i === 0 ? shape.moveTo(x, y) : shape.lineTo(x, y)));
+  shape.closePath();
+  b.add(new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false }), color, TRS(at.x, at.y, at.z), { jit: 0.02 });
+}
+
+/** A bangka: a slim hull, a double outrigger of bamboo, and paint as bright as the owner can afford. */
+function bangka(b: Builder, x: number, z: number, y: number, rot: number, stripe: number, awning: boolean) {
+  const c = Math.cos(rot);
+  const s = Math.sin(rot);
+  const P = (dx: number, dy: number, dz: number, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) => TRS(x + dx * c + dz * s, y + dy, z - dx * s + dz * c, rx, rot + ry, rz, sx, sy, sz);
+  b.sphere(1, 0xf0ece0, P(0, 0.16, 0, 0, 0, 0, 0.52, 0.42, 3.4), { jit: 0.03 }, 14, 8);
+  b.sphere(1, stripe, P(0, 0.4, 0, 0, 0, 0, 0.54, 0.14, 3.34), { jit: 0.03 }, 14, 6);
+  b.box(0.8, 0.08, 4.6, 0x8a6c44, P(0, 0.56, 0), { jit: 0.1 }, 0.02);
+  // Curved ends rising at bow and stern.
+  b.tube([new THREE.Vector3(x - 3.1 * s, y + 0.4, z - 3.1 * c), new THREE.Vector3(x - 3.7 * s, y + 0.75, z - 3.7 * c), new THREE.Vector3(x - 3.95 * s, y + 1.3, z - 3.95 * c)], 0.06, 0xf0ece0, {}, 8, 6);
+  b.tube([new THREE.Vector3(x + 3.1 * s, y + 0.4, z + 3.1 * c), new THREE.Vector3(x + 3.6 * s, y + 0.72, z + 3.6 * c), new THREE.Vector3(x + 3.8 * s, y + 1.15, z + 3.8 * c)], 0.06, 0xf0ece0, {}, 8, 6);
+  for (const dz of [-1.5, 1.5]) {
+    b.cyl(0.05, 0.05, 5.4, 0xc9b878, P(0, 0.72, dz, 0, 0, Math.PI / 2), { jit: 0.05 }, 7);
+    for (const side of [-1, 1]) b.cyl(0.035, 0.035, 0.75, 0xa89660, P(side * 2.55, 0.38, dz), {}, 6);
+  }
+  for (const side of [-1, 1]) b.cyl(0.085, 0.085, 4.4, 0xc9b878, P(side * 2.55, 0.06, 0, Math.PI / 2, 0, 0), { jit: 0.05 }, 8);
+  if (awning) {
+    for (const dx of [-0.34, 0.34]) for (const dz of [-1.2, 1.2]) b.cyl(0.025, 0.025, 1.3, 0x8a6c44, P(dx, 1.2, dz), {}, 5);
+    b.box(1.0, 0.05, 2.9, stripe, P(0, 1.87, 0), { jit: 0.05 }, 0.01);
+  }
+}
+
 /** A few things that only belong in one place. */
 function buildPlaceKit(b: Builder) {
   const at = (x: number, z: number) => groundY(x, z);
   if (MAP.props.kit === 'bangka') {
-    // A bangka drawn up on the sand, floats and all.
-    const x = 36;
-    const z = 22;
-    const y = at(x, z) + 0.22;
-    const rot = 1.25;
-    const P = (dx: number, dy: number, dz: number, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) => {
-      const c = Math.cos(rot);
-      const s = Math.sin(rot);
-      return TRS(x + dx * c + dz * s, y + dy, z - dx * s + dz * c, rx, rot + ry, rz, sx, sy, sz);
-    };
-    b.sphere(1, 0xf0ece0, P(0, 0.2, 0, 0, 0, 0, 0.5, 0.42, 3.1), { jit: 0.03 });
-    b.sphere(1, 0x2f62b8, P(0, 0.42, 0, 0, 0, 0, 0.52, 0.16, 3.05), { jit: 0.03 });
-    b.box(0.74, 0.1, 4.6, 0x8a6c44, P(0, 0.6, 0), { jit: 0.1 }, 0.02);
-    for (const dz of [-1.5, 1.5]) b.cyl(0.05, 0.05, 5, 0xc9b878, P(0, 0.72, dz, 0, 0, Math.PI / 2), {}, 7);
-    for (const side of [-1, 1]) b.cyl(0.09, 0.09, 4.2, 0xc9b878, P(side * 2.4, 0.15, 0, Math.PI / 2, 0, 0), {}, 8);
+    // One drawn up on the sand, and the rest riding at anchor in the bay.
+    bangka(b, 34, 26, at(34, 26) + 0.12, 1.25, 0x2f62b8, false);
+    const moored: [number, number, number, number, boolean][] = [
+      [-52, 34, 0.5, 0xc23a2c, true], [-72, -30, 2.1, 0x2f7d80, false], [-100, 20, 1.2, 0xe8a02e, true], [-40, -46, 2.8, 0x35623c, false], [-126, 48, 0.2, 0x2f62b8, true], [-150, -8, 1.9, 0xc23a2c, false],
+    ];
+    for (const [x, z, r, col, aw] of moored) bangka(b, x, z, 0.02, r, col, aw);
+    // A star lantern at the porch, as every house hangs at Christmas, and some the whole year.
+    const px = COTTAGE.x - 3.7;
+    const py = COTTAGE.y + 4.3;
+    const pz = COTTAGE.z + 1.6;
+    const star = new THREE.Shape();
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2 + Math.PI / 2;
+      const r = i % 2 ? 0.14 : 0.34;
+      if (i === 0) star.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+      else star.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+    }
+    star.closePath();
+    b.add(new THREE.ExtrudeGeometry(star, { depth: 0.06, bevelEnabled: false }), 0xffb060, TRS(px, py, pz, 0, Math.PI / 2, 0), { emis: 1 });
+    // The flag, on a bamboo pole by the path.
+    const fx = COTTAGE.x - 9;
+    const fz = COTTAGE.z - 6;
+    const fy = at(fx, fz);
+    b.cyl(0.04, 0.05, 6, 0xc9b878, TRS(fx, fy + 3, fz), { jit: 0.04 }, 7);
+    const o = new THREE.Vector3(fx + 0.04, fy + 5.0, fz);
+    flag(b, [[0, 0.46], [1.5, 0.46], [1.5, 0.92], [0, 0.92]], 0x1f3f9a, o);
+    flag(b, [[0, 0], [1.5, 0], [1.5, 0.46], [0, 0.46]], 0xc8201e, o);
+    flag(b, [[0, 0], [0.8, 0.46], [0, 0.92]], 0xf4f1e8, new THREE.Vector3(o.x, o.y, o.z + 0.002), 0.016);
+    b.sphere(0.11, 0xf2c12e, TRS(o.x + 0.24, o.y + 0.46, o.z + 0.012, 0, 0, 0, 1, 1, 0.2), { emis: 0.2 }, 10, 6);
   } else if (MAP.props.kit === 'canoe') {
-    // A red canoe upturned on the shore, and a stone figure of the kind left to mark the way.
-    const x = 34;
-    const z = 20;
-    const y = at(x, z) + 0.28;
-    b.sphere(1, 0xa83226, TRS(x, y, z, 0, 1.2, 0, 0.42, 0.34, 2.5), { jit: 0.03 });
-    for (const dz of [-0.9, 0.9]) b.box(0.06, 0.06, 0.8, 0x7a5a42, TRS(x + Math.sin(1.2) * dz, y - 0.28, z + Math.cos(1.2) * dz, 0, 1.2 + Math.PI / 2, 0), {}, 0.01);
-    const sx = 30;
-    const sz = -16;
-    const sy = at(sx, sz);
-    const stone = 0x8c8a86;
-    for (const dx of [-0.32, 0.32]) b.box(0.3, 0.7, 0.34, stone, TRS(sx + dx, sy + 0.35, sz), { jit: 0.1 }, 0.08);
-    b.box(1.2, 0.26, 0.42, stone, TRS(sx, sy + 0.82, sz), { jit: 0.1 }, 0.08);
-    b.box(0.46, 0.5, 0.36, stone, TRS(sx, sy + 1.2, sz), { jit: 0.1 }, 0.08);
-    b.box(1.5, 0.2, 0.34, stone, TRS(sx, sy + 1.55, sz), { jit: 0.1 }, 0.06);
-    b.box(0.4, 0.42, 0.34, stone, TRS(sx, sy + 1.86, sz), { jit: 0.1 }, 0.1);
+    // The red canoes, side by side at the water's edge.
+    for (let i = 0; i < 6; i++) {
+      const x = 16 + (i % 2) * 2.4;
+      const z = 7 + i * 1.7;
+      const y = Math.max(at(x, z), 0.05) + 0.3;
+      b.sphere(1, 0xb0281e, TRS(x, y, z, 0, Math.PI / 2 + (i % 2) * 0.1, 0, 0.42, 0.3, 2.45), { jit: 0.04 }, 14, 8);
+      b.box(0.74, 0.02, 3.8, 0x3a2418, TRS(x, y + 0.27, z, 0, Math.PI / 2 + (i % 2) * 0.1, 0), {}, 0.006);
+      b.box(0.6, 0.03, 0.22, 0xa98a68, TRS(x, y + 0.26, z, 0, Math.PI / 2 + (i % 2) * 0.1, 0), {}, 0.006);
+    }
+    // The Rockpile: the great heap of boulders at the end of the lake that everyone climbs for the view.
+    const rnd = mulberry32(55);
+    for (let i = 0; i < 90; i++) {
+      const a = rnd() * Math.PI * 2;
+      const d = Math.sqrt(rnd()) * 19;
+      const x = 22 + Math.cos(a) * d * 1.1;
+      const z = -44 + Math.sin(a) * d;
+      const h = (1 - d / 21) * 11;
+      const r = 0.8 + rnd() * rnd() * 3.4;
+      const geo = new THREE.IcosahedronGeometry(r, 0);
+      b.add(geo, rnd() < 0.5 ? 0x7c7a78 : 0x8e8a84, TRS(x, Math.max(at(x, z), 0) + h * rnd() + r * 0.3, z, rnd() * 3, rnd() * 3, rnd() * 3, 1, 0.72 + rnd() * 0.4, 1), { jit: 0.12 });
+    }
+    // The flag.
+    const fx = COTTAGE.x - 9;
+    const fz = COTTAGE.z - 6;
+    const fy = at(fx, fz);
+    b.cyl(0.04, 0.055, 7, 0xd8d4c8, TRS(fx, fy + 3.5, fz), {}, 7);
+    const o = new THREE.Vector3(fx + 0.05, fy + 5.8, fz);
+    flag(b, [[0, 0], [0.45, 0], [0.45, 0.9], [0, 0.9]], 0xc8201e, o);
+    flag(b, [[0.45, 0], [1.35, 0], [1.35, 0.9], [0.45, 0.9]], 0xf4f1e8, o);
+    flag(b, [[1.35, 0], [1.8, 0], [1.8, 0.9], [1.35, 0.9]], 0xc8201e, o);
+    flag(b, [[0.9, 0.12], [0.94, 0.26], [1.12, 0.22], [1.08, 0.36], [1.18, 0.42], [1.05, 0.54], [1.08, 0.66], [0.97, 0.62], [0.9, 0.8], [0.83, 0.62], [0.72, 0.66], [0.75, 0.54], [0.62, 0.42], [0.72, 0.36], [0.68, 0.22], [0.86, 0.26]], 0xc8201e, new THREE.Vector3(o.x, o.y, o.z + 0.002), 0.016);
   }
+}
+
+/** A bahay kubo: bamboo and thatch on stilts, open to the air, cool underneath. */
+function buildNipaHut(b: Builder) {
+  const ox = COTTAGE.x;
+  const oy = COTTAGE.y;
+  const oz = COTTAGE.z;
+  const W = 6.2;
+  const D = 8.4;
+  const FLOOR = 1.5;
+  const WALL = 2.1;
+  const P = (x: number, y: number, z: number, rx = 0, ry = 0, rz = 0) => TRS(ox + x, oy + y, oz + z, rx, ry, rz);
+  const BAMBOO = 0xc4ae7c;
+  for (const x of [-W / 2, 0, W / 2]) for (const z of [-D / 2, -D / 6, D / 6, D / 2]) b.cyl(0.1, 0.12, FLOOR + 0.4, WOOD_DARK, P(x, FLOOR / 2 - 0.1, z), { jit: 0.1 }, 8);
+  // Split-bamboo floor.
+  for (let i = 0; i < 26; i++) b.cyl(0.055, 0.055, D + 0.4, BAMBOO, P(-W / 2 - 0.2 + i * 0.26, FLOOR, 0, Math.PI / 2, 0, 0), { jit: 0.1 }, 6);
+  // Woven walls, with the window openings left dark and shutters propped out.
+  const wall = (x: number, z: number, w: number, d: number) => b.box(w, WALL, d, PLASTER, P(x, FLOOR + WALL / 2 + 0.05, z), { jit: 0.05 }, 0.01);
+  wall(0, -D / 2, W, 0.08);
+  wall(0, D / 2, W, 0.08);
+  wall(W / 2, 0, 0.08, D);
+  wall(-W / 2, -2.65, 0.08, D / 2 - 1.3);
+  wall(-W / 2, 2.65, 0.08, D / 2 - 1.3);
+  b.box(0.08, 0.5, 1.5, PLASTER, P(-W / 2, FLOOR + WALL - 0.2, 0), { jit: 0.05 }, 0.01);
+  for (const z of [-2.7, 2.7]) {
+    b.box(0.1, 0.9, 1.3, 0xffc070, P(-W / 2 - 0.01, FLOOR + 1.25, z), { emis: 1 }, 0.01);
+    b.box(0.05, 0.06, 1.5, WOOD_DARK, P(-W / 2 - 0.05, FLOOR + 1.72, z), {}, 0.01);
+    b.box(0.5, 0.05, 1.4, WOOD_PALE, P(-W / 2 - 0.25, FLOOR + 1.85, z, 0, 0, -0.5), {}, 0.01);
+  }
+  b.box(0.06, 1.65, 1.1, 0x3a2a1c, P(-W / 2 - 0.02, FLOOR + 0.9, 0), {}, 0.01);
+  // Steep thatch, overhanging well for the rain.
+  const RISE = 3.0;
+  const half = W / 2 + 1.0;
+  const len = D + 1.8;
+  const rows = 15;
+  const slope = Math.atan2(RISE, half);
+  const roofBase = FLOOR + WALL;
+  for (const side of [-1, 1]) {
+    for (let r = 0; r < rows; r++) {
+      const k = r / rows;
+      const x = side * half * (1 - k);
+      const y = roofBase - 0.15 + RISE * k;
+      b.box(half * 1.22 / rows + 0.24, 0.1, len, SHINGLE, P(x, y, 0, 0, 0, side * slope), { jit: 0.1, hue: 0.015 }, 0.02);
+    }
+  }
+  b.box(0.3, 0.18, len + 0.1, 0x6a5a34, P(0, roofBase + RISE - 0.05, 0), { jit: 0.1 }, 0.03);
+  // Gable ends.
+  for (const z of [-D / 2, D / 2]) {
+    const gable = new THREE.Shape();
+    gable.moveTo(-W / 2, 0);
+    gable.lineTo(W / 2, 0);
+    gable.lineTo(0, RISE * (W / 2) / half);
+    gable.closePath();
+    b.add(new THREE.ExtrudeGeometry(gable, { depth: 0.06, bevelEnabled: false }), PLASTER, P(0, roofBase + 0.02, z - 0.03), { jit: 0.05 });
+  }
+  // Bamboo ladder and a small landing, down towards the path.
+  b.box(1.5, 0.08, 1.9, BAMBOO, P(-W / 2 - 0.75, FLOOR, 0), { jit: 0.08 }, 0.02);
+  for (const z of [-0.5, 0.5]) b.cyl(0.05, 0.05, 2.4, BAMBOO, P(-W / 2 - 2.0, FLOOR / 2, z, 0, 0, 0.72), {}, 6);
+  for (let i = 0; i < 5; i++) b.cyl(0.04, 0.04, 1.1, BAMBOO, P(-W / 2 - 1.55 - i * 0.26, FLOOR - 0.18 - i * 0.28, 0, Math.PI / 2, 0, 0), {}, 6);
+  // Cooking place under the eaves, which is where the smoke comes from.
+  b.box(0.9, 0.6, 0.9, 0x8a5a3a, P(4.9, 0.3, 3.2), { jit: 0.1 }, 0.1);
+  b.cyl(0.3, 0.2, 0.2, 0x26262a, P(4.9, 0.7, 3.2), {}, 12);
+  // Water jars and banana plants, close by.
+  for (const [x, z] of [[-W / 2 - 1.2, -3.2], [-W / 2 - 1.2, -4.0]] as [number, number][]) {
+    b.sphere(0.34, 0x8a5a3a, P(x, 0.3, z, 0, 0, 0), { jit: 0.1 }, 10, 8);
+  }
+}
+
+/** A log lodge, in the manner of the mountain places: squared logs, a green roof, a river-stone chimney. */
+function buildLodge(b: Builder) {
+  const ox = COTTAGE.x;
+  const oy = COTTAGE.y;
+  const oz = COTTAGE.z;
+  const W = 6.2;
+  const D = 9.4;
+  const H = 2.75;
+  const P = (x: number, y: number, z: number, rx = 0, ry = 0, rz = 0) => TRS(ox + x, oy + y, oz + z, rx, ry, rz);
+  const LOG = PLASTER;
+  // Stone footing.
+  b.box(W + 0.3, 0.42, D + 0.3, STONE, P(0, 0.12, 0), { jit: 0.1 }, 0.06);
+  // Courses of logs, ends crossing at the corners.
+  const courses = 11;
+  for (let i = 0; i < courses; i++) {
+    const y = 0.42 + (i + 0.5) * (H / courses);
+    const r = H / courses / 2 + 0.018;
+    for (const z of [-D / 2, D / 2]) b.cyl(r, r, W + 0.9, LOG, P(0, y, z, 0, 0, Math.PI / 2), { jit: 0.09 }, 8);
+    for (const x of [W / 2]) b.cyl(r, r, D + 0.9, LOG, P(x, y + r, 0, Math.PI / 2, 0, 0), { jit: 0.09 }, 8);
+    for (const z of [-3.2, 3.2]) b.cyl(r, r, 3.0 + 0.45, LOG, P(-W / 2, y + r, z, Math.PI / 2, 0, 0), { jit: 0.09 }, 8);
+    if (i > 7) b.cyl(r, r, 1.9, LOG, P(-W / 2, y + r, 0, Math.PI / 2, 0, 0), { jit: 0.09 }, 8);
+  }
+  // Door and windows, facing the lake.
+  const dx = -W / 2 - 0.03;
+  b.box(0.08, 2.1, 1.1, 0x4a2c1c, P(dx, 1.32, 0), { jit: 0.08 }, 0.02);
+  b.sphere(0.045, 0xc9a24a, P(dx - 0.07, 1.25, 0.38), {}, 6, 5);
+  for (const z of [-2.5, 2.5]) {
+    b.box(0.06, 1.0, 1.1, 0xffc070, P(dx, 1.72, z), { emis: 1 }, 0.01);
+    for (const s of [-1, 0, 1]) b.box(0.03, 1.0, 0.04, 0x2a1c14, P(dx - 0.04, 1.72, z + s * 0.36), {}, 0.005);
+  }
+  // Porch.
+  b.box(2.4, 0.14, 4.4, WOOD_PALE, P(-W / 2 - 1.2, 0.3, 0), { jit: 0.1 }, 0.02);
+  b.box(0.9, 0.16, 1.8, STONE, P(-W / 2 - 2.8, 0.05, 0), { jit: 0.15 }, 0.03);
+  for (const z of [-2.0, 2.0]) b.cyl(0.11, 0.13, 2.5, LOG, P(-W / 2 - 2.2, 1.5, z), { jit: 0.1 }, 8);
+  b.box(2.8, 0.1, 4.9, SHINGLE, P(-W / 2 - 1.2, 2.82, 0, 0, 0, 0.14), { jit: 0.06 }, 0.02);
+  // Steep green metal roof, for the snow.
+  const RISE = 3.2;
+  const half = W / 2 + 0.7;
+  const len = D + 1.4;
+  const run = Math.hypot(half, RISE);
+  const ang = Math.atan2(RISE, half);
+  for (const side of [-1, 1]) {
+    b.box(run + 0.06, 0.1, len, SHINGLE, P(side * half * 0.5, 0.42 + H + RISE * 0.5 - 0.05, 0, 0, 0, side * ang), { jit: 0.03 }, 0.02);
+    for (let i = 0; i < 12; i++) b.box(run, 0.03, 0.05, 0x2e4436, P(side * half * 0.5, 0.42 + H + RISE * 0.5 + 0.02, -len / 2 + (i + 0.5) * (len / 12), 0, 0, side * ang), {}, 0.005);
+  }
+  for (const z of [-D / 2, D / 2]) {
+    const gable = new THREE.Shape();
+    gable.moveTo(-W / 2, 0);
+    gable.lineTo(W / 2, 0);
+    gable.lineTo(0, RISE * (W / 2) / half);
+    gable.closePath();
+    b.add(new THREE.ExtrudeGeometry(gable, { depth: 0.08, bevelEnabled: false }), WOOD, P(0, 0.42 + H, z - 0.04), { jit: 0.05 });
+  }
+  // River-stone chimney, up the north end.
+  const cx = 1.15;
+  const cz = D / 2 - 0.1;
+  for (let i = 0; i < 16; i++) {
+    const y = 0.5 + i * 0.5;
+    b.box(1.1, 0.52, 0.95, STONE, P(cx, y, cz, 0, (i % 3) * 0.04, 0), { jit: 0.16 }, 0.08);
+  }
+  // Split wood, stacked for winter.
+  for (let r = 0; r < 4; r++) for (let i = 0; i < 8; i++) b.cyl(0.11, 0.11, 0.8, r % 2 ? 0x8a6a48 : 0x9a7a54, P(W / 2 + 0.5, 0.2 + r * 0.2, -3.2 + i * 0.25, Math.PI / 2, 0, 0.05), { jit: 0.12 }, 7);
 }
 
 export function makeProps(): PropWorld {
   const group = new THREE.Group();
 
   const b = new Builder(2024);
-  buildCottage(b);
+  if (MAP.props.house === 'nipa') buildNipaHut(b);
+  else if (MAP.props.house === 'lodge') buildLodge(b);
+  else buildCottage(b);
   buildBeachKit(b);
   const pathKit = buildPathKit(b);
   const jettyLamps = buildJetty(b);
-  const lighthouseLamp = buildLighthouse(b);
+  // Neither Bacuit Bay nor Moraine Lake has a lighthouse.
+  const lighthouseLamp = MAP.props.beacon ? buildLighthouse(b) : new THREE.Vector3(0, -80, 0);
   buildPlaceKit(b);
 
   const glowMat = paintedMaterial();
@@ -609,7 +803,7 @@ export function makeProps(): PropWorld {
     glowMat,
     lamps,
     bench: pathKit.bench,
-    chimney: new THREE.Vector3(COTTAGE.x + 1.15, COTTAGE.y + 2.75 + 1.2 + 2.4 + 0.4, COTTAGE.z + 9.4 / 2 - 1.4),
+    chimney: MAP.props.house === 'nipa' ? new THREE.Vector3(COTTAGE.x + 4.9, COTTAGE.y + 1, COTTAGE.z + 3.2) : new THREE.Vector3(COTTAGE.x + 1.15, COTTAGE.y + 2.75 + 1.2 + 2.4 + 0.4, COTTAGE.z + 9.4 / 2 - 1.4),
     lighthouseLamp,
     cloth: clothMat,
   };

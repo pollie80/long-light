@@ -6,7 +6,7 @@ import type { FishState } from '../game/fishing';
 import { MAP, MapId } from '../world/maps';
 
 /** Bumped whenever the messages change, so an old copy gets a clear message instead of odd behaviour. */
-export const PROTOCOL = 3;
+export const PROTOCOL = 4;
 export const MAX_PLAYERS = 8;
 export const PEER_PREFIX = 'long-light-cove-';
 export const HOSTED_URL = 'https://pollie80.github.io/long-light/';
@@ -18,6 +18,9 @@ export interface NetState {
   /** Shotgun out, and how many times it has been fired. */
   gun: boolean;
   shots: number;
+  /** Patting the pet; bottle raised for a cheers. */
+  pat: boolean;
+  ch: boolean;
   mode: PoseMode;
   sp: number;
   /** In the boat, with this seat turn. */
@@ -76,6 +79,8 @@ export function cleanState(v: unknown): NetState | null {
     x: num(o.x, 5000), y: num(o.y, 500), z: num(o.z, 5000), yaw: num(o.yaw, 100),
     air: o.air === true,
     gun: o.gun === true,
+    pat: o.pat === true,
+    ch: o.ch === true,
     shots: Math.floor(num(o.shots, 1e6)),
     mode: POSES.includes(o.mode as PoseMode) ? (o.mode as PoseMode) : 'stand',
     sp: num(o.sp, 20),

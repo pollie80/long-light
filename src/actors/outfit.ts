@@ -181,6 +181,7 @@ function nose(b: Builder, L: CharacterLook, skin: number) {
     case 'clown': b.sphere(0.042, 0xd8201c, TRS(0, 0.036, -0.122), {}, 12, 10); break;
     case 'carrot': b.add(new THREE.ConeGeometry(0.03, 0.2, 9), 0xe0761c, TRS(0, 0.036, -0.195, -Math.PI / 2, 0, 0)); break;
     case 'pickle': b.sphere(0.03, 0x6a8a2c, TRS(0, 0.014, -0.122, 0.2, 0, 0, 0.9, 1.9, 0.95), {}, 10, 8); break;
+    case 'banana': b.tube([new THREE.Vector3(0, 0.05, -0.1), new THREE.Vector3(0, 0.02, -0.17), new THREE.Vector3(0, -0.05, -0.2), new THREE.Vector3(0, -0.13, -0.19)], 0.024, 0xe8cc3a, {}, 10, 7); break;
     default: b.sphere(0.03, skin, TRS(0, 0.035, -0.105, 0, 0, 0, 0.9, 0.9, 1.2), {}, 8, 6);
   }
 }
@@ -300,6 +301,13 @@ function inMouth(b: Builder, L: CharacterLook) {
     case 'fish':
       b.sphere(0.03, 0x9ab4b8, TRS(0.0, y - 0.004, -0.15, 0, 0, 0, 0.45, 0.62, 1.7), {}, 10, 8);
       b.add(new THREE.ConeGeometry(0.026, 0.05, 4), 0x6a8488, TRS(0, y - 0.004, -0.213, -Math.PI / 2, 0, 0, 0.3, 1, 1));
+      break;
+    case 'kazoo':
+      b.box(0.028, 0.024, 0.13, 0xd8b030, TRS(0, -0.018, -0.17), {}, 0.008);
+      b.cyl(0.016, 0.016, 0.02, 0xc09a20, TRS(0, 0.004, -0.17), {}, 8);
+      break;
+    case 'sausage':
+      b.sphere(0.028, 0x8a4a2a, TRS(0.06, -0.022, -0.15, 0, 0, 1.45, 1, 4.2, 1), { jit: 0.05 }, 10, 8);
       break;
     case 'gum':
       b.sphere(0.052, 0xf28cb0, TRS(0.004, y, -0.15), {}, 12, 10);
@@ -484,6 +492,26 @@ function hat(b: Builder, spin: Builder, L: CharacterLook) {
       lathe([[0.0, 0.134], [0.104, 0.13], [0.19, 0.122], [0.19, 0.116], [0.104, 0.12], [0.0, 0.124]], col, 20);
       band(0.1085, 0.135, 0.17, 0xb8392e);
       break;
+    case 'plunger':
+      b.sphere(0.115, 0x8c2a20, T(0, 0.13, 0, 0, 0, 0, 1, 0.62, 1), {}, 14, 8);
+      b.cyl(0.015, 0.018, 0.46, 0xb08a58, T(0.02, 0.4, 0, 0, 0, -0.05), { jit: 0.05 }, 8);
+      break;
+    case 'lampshade':
+      b.cyl(0.085, 0.2, 0.25, 0xe8d8a8, T(0, 0.2, 0), { jit: 0.03 }, 18);
+      for (let i = 0; i < 18; i++) {
+        const a = (i / 18) * Math.PI * 2;
+        b.cyl(0.004, 0.004, 0.05, 0xc0392b, T(Math.cos(a) * 0.205, 0.06, Math.sin(a) * 0.205), {}, 4);
+      }
+      break;
+    case 'colander':
+      b.sphere(0.128, 0xb8bcc0, T(0, 0.08, 0, 0, 0, 0, 1, 0.85, 1), {}, 16, 10);
+      for (let i = 0; i < 26; i++) {
+        const a = i * 2.4;
+        const r = 0.02 + (i / 26) * 0.1;
+        b.sphere(0.008, 0x26282c, T(Math.cos(a) * r, 0.08 + Math.sqrt(Math.max(0.0001, 0.0164 - r * r)) * 0.85, Math.sin(a) * r), {}, 5, 4);
+      }
+      for (const s of [-1, 1]) b.box(0.06, 0.012, 0.03, 0xb8bcc0, T(s * 0.14, 0.09, 0), {}, 0.004);
+      break;
     case 'cone':
       b.add(new THREE.ConeGeometry(0.125, 0.4, 14), 0xe8701c, T(0, 0.32, 0));
       b.cyl(0.078, 0.092, 0.075, WHITE, T(0, 0.3, 0), {}, 14);
@@ -618,6 +646,16 @@ function torso(b: Builder, L: CharacterLook, main: number, skin: number) {
     case 'tutu':
       b.lathe(CHEST, main, FLAT(), {}, 18);
       break;
+    case 'barrel':
+      b.lathe([[0.2, -0.12], [0.25, 0.08], [0.25, 0.22], [0.2, 0.38]], 0x7a5a36, FLAT(), { jit: 0.06 }, 16);
+      for (const y of [-0.04, 0.3]) b.cyl(0.235, 0.235, 0.02, 0x3a3a3e, TRS(0, y, 0, 0, 0, 0, 1, 1, 0.8), {}, 16);
+      break;
+    case 'box':
+      b.box(0.46, 0.54, 0.34, 0xb08a58, TRS(0, 0.12, 0), { jit: 0.04 }, 0.008);
+      for (const s of [-1, 1]) b.box(0.22, 0.012, 0.16, 0xa07c4c, TRS(s * 0.29, 0.385, 0, 0, 0, s * 0.5), {}, 0.004);
+      b.box(0.05, 0.06, 0.012, 0x8a3a2a, TRS(0.1, 0.2, -0.176), {}, 0.002);
+      b.box(0.14, 0.012, 0.012, 0x5a4a30, TRS(-0.08, 0.26, -0.176), {}, 0.002);
+      break;
     case 'robe':
       b.lathe(CHEST, main, FLAT(), {}, 18);
       for (let i = 0; i < 8; i++) {
@@ -662,6 +700,13 @@ function hips(b: Builder, L: CharacterLook, main: number, trousers: number) {
     case 'robe':
       b.lathe([[0.3, -0.93], [0.34, -0.945], [0.25, -0.5], [0.165, -0.1], [0.15, 0.09]], main, flat, { ao: 0.2 }, 22);
       break;
+    case 'barrel':
+      b.lathe([[0.16, -0.46], [0.2, -0.3], [0.2, -0.12], [0.16, 0.09]], 0x7a5a36, flat, { jit: 0.06 }, 16);
+      b.cyl(0.21, 0.21, 0.02, 0x3a3a3e, TRS(0, -0.36, 0, 0, 0, 0, 1, 1, 0.8), {}, 16);
+      break;
+    case 'box':
+      b.box(0.46, 0.42, 0.34, 0xb08a58, TRS(0, -0.15, 0), { jit: 0.04 }, 0.008);
+      break;
     case 'tutu':
       b.lathe([[0.16, -0.1], [0.155, 0.0], [0.15, 0.09]], main, flat, {}, 18);
       for (let i = 0; i < 3; i++) {
@@ -694,6 +739,14 @@ function neckwear(b: Builder, a: Builder, z: Builder, L: CharacterLook) {
     case 'tie':
       b.box(0.05, 0.032, 0.016, col, TRS(0, 0.44, -0.095), {}, 0.005);
       b.box(0.058, 0.3, 0.008, col, TRS(0, 0.27, -0.14, -0.06, 0, 0), {}, 0.003);
+      break;
+    case 'toiletseat':
+      b.add(new THREE.TorusGeometry(0.17, 0.032, 8, 22), 0xf2efe6, TRS(0, 0.385, -0.03, Math.PI / 2 + 0.28, 0, 0, 0.92, 1.12, 1), { jit: 0.02 });
+      b.box(0.3, 0.32, 0.024, 0xf2efe6, TRS(0, 0.52, 0.16, -0.5, 0, 0), {}, 0.012);
+      break;
+    case 'medal':
+      for (const s of [-1, 1]) b.box(0.03, 0.24, 0.006, 0x2f62b8, TRS(s * 0.05, 0.3, -0.14, -0.12, 0, s * 0.28), {}, 0.002);
+      b.cyl(0.05, 0.05, 0.012, 0xc08a40, TRS(0, 0.17, -0.165, Math.PI / 2, 0, 0), {}, 16);
       break;
     case 'lei':
       for (let i = 0; i < 16; i++) {
@@ -762,6 +815,16 @@ function backItem(b: Builder, cape: Builder, L: CharacterLook, skin: number) {
       b.add(new THREE.ConeGeometry(0.024, 0.06, 6), 0xe0702a, TRS(0, 0.095, -0.325, -Math.PI / 2, 0, 0, 1, 1, 0.6));
       for (const s of [-1, 1]) b.sphere(0.012, 0x120e10, TRS(s * 0.038, 0.125, -0.3), {}, 5, 4);
       break;
+    case 'fridge':
+      b.box(0.46, 0.76, 0.34, 0xe8e8e4, TRS(0, 0.1, 0.33), { jit: 0.02 }, 0.03);
+      b.box(0.462, 0.008, 0.342, 0x9a9a98, TRS(0, 0.26, 0.33), {}, 0.002);
+      b.box(0.02, 0.2, 0.025, 0x9a9a98, TRS(-0.17, 0.08, 0.505), {}, 0.006);
+      b.box(0.08, 0.08, 0.008, 0xd84a3a, TRS(0.1, 0.38, 0.502), {}, 0.002);
+      break;
+    case 'ladder':
+      for (const s of [-1, 1]) b.box(0.03, 1.7, 0.03, 0xa98a68, TRS(s * 0.15, 0.32, 0.22, 0.05, 0, 0), { jit: 0.06 }, 0.006);
+      for (let i = 0; i < 6; i++) b.box(0.3, 0.022, 0.022, 0xa98a68, TRS(0, -0.32 + i * 0.26, 0.22 + i * 0.012), {}, 0.005);
+      break;
     case 'wings':
       for (const s of [-1, 1]) {
         const shape = new THREE.Shape();
@@ -808,6 +871,19 @@ function shoe(b: Builder, L: CharacterLook, skin: number, trousers: number) {
       b.cyl(0.052, 0.055, 0.1, trousers, TRS(0, -0.36, 0), {}, 9);
       b.sphere(0.12, col, TRS(0, -0.42, -0.13, 0, 0, 0, 0.85, 0.5, 1.7), {}, 12, 8);
       b.box(0.16, 0.02, 0.36, WHITE, TRS(0, -0.468, -0.12), {}, 0.01);
+      break;
+    case 'fishfeet':
+      b.cyl(0.05, 0.05, 0.1, trousers, TRS(0, -0.37, 0), {}, 9);
+      b.sphere(0.09, 0x8fa4ac, TRS(0, -0.435, -0.05, 0, 0, 0, 0.62, 0.55, 2.1), { jit: 0.05 }, 12, 8);
+      b.add(new THREE.ConeGeometry(0.08, 0.14, 4), 0x6a8088, TRS(0, -0.435, 0.2, -Math.PI / 2, 0, 0, 1, 1, 0.35));
+      b.sphere(0.018, 0x15110f, TRS(0.04, -0.42, -0.2), {}, 6, 4);
+      b.sphere(0.018, 0x15110f, TRS(-0.04, -0.42, -0.2), {}, 6, 4);
+      break;
+    case 'skis':
+      b.cyl(0.05, 0.055, 0.1, col, TRS(0, -0.37, 0), {}, 9);
+      b.box(0.1, 0.05, 0.16, col, TRS(0, -0.43, -0.02), {}, 0.02);
+      b.box(0.08, 0.018, 1.25, 0xc23a2c, TRS(0, -0.465, -0.08), {}, 0.006);
+      b.box(0.08, 0.018, 0.14, 0xc23a2c, TRS(0, -0.44, -0.74, 0.5, 0, 0), {}, 0.006);
       break;
     case 'flippers':
       b.cyl(0.05, 0.05, 0.1, skin, TRS(0, -0.37, 0), {}, 9);

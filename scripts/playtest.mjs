@@ -165,6 +165,24 @@ await wait(200);
 await page.evaluate(() => __ll.game.fishing.reelIn());
 await wait(200);
 
+// A real pat: the hand has to end up on the pet.
+const handGap = () => page.evaluate(() => {
+  const g = __ll.game;
+  const V = g.camera.position.constructor;
+  const hand = new V(0, -0.3, 0).applyMatrix4(g.fisher.fore[0].matrixWorld);
+  return hand.distanceTo(g.pet.headTop(new V()));
+});
+await page.evaluate(() => __ll.place(40, 8, 1.57));
+await wait(1800);
+check('the pat prompt shows ashore', (await page.locator('#prompt').textContent()).includes('pat'));
+await page.keyboard.press('KeyP');
+await wait(1500);
+const gapLand = await handGap();
+check('patting ashore puts a hand on the pet', gapLand < 0.22, `${gapLand.toFixed(2)} m`);
+await shot('pat-land');
+await wait(1800);
+check('and it finishes by itself', (await page.evaluate(() => __ll.game.patT)) <= 0);
+
 // The pet keeps up, on land and on the jetty.
 const petGap = () => page.evaluate(() => __ll.game.pet.worldPos().distanceTo(__ll.game.fisher.root.position));
 check('a pet is there', await page.evaluate(() => __ll.game.pet.exists));
@@ -246,6 +264,18 @@ await page.keyboard.up('KeyW');
 const b1 = await page.evaluate(() => ({ x: __ll.game.boat.x, z: __ll.game.boat.z, h: __ll.game.boat.heading, sp: __ll.game.boat.speed }));
 check('W rows the boat', Math.hypot(b1.x - b0.x, b1.z - b0.z) > 4, `moved ${Math.hypot(b1.x - b0.x, b1.z - b0.z).toFixed(1)} m`);
 check('A turns the boat', Math.abs(b1.h - b0.h) > 0.05, `turned ${(b1.h - b0.h).toFixed(2)} rad`);
+
+// A pat in the boat.
+await page.keyboard.press('KeyP');
+await wait(1600);
+const gapBoat = await handGap();
+check('patting in the boat puts a hand on the pet', gapBoat < 0.25, `${gapBoat.toFixed(2)} m`);
+await shot('pat-boat');
+await page.keyboard.down('KeyW');
+await wait(300);
+await page.keyboard.up('KeyW');
+check('moving off stops the pat', (await page.evaluate(() => __ll.game.patT)) <= 0);
+await wait(800);
 
 // Rowing speed.
 const rowRun = async () => {

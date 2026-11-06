@@ -151,6 +151,8 @@ export function makeTerrain(): THREE.Group {
         vec3 rockB = ROCK_B;
         float strata = texture2D(uNoise, vec2(xz.x * 0.02 + xz.y * 0.02, vP.y * 0.13)).r;
         vec3 rock = mix(rockA, rockB, smoothstep(0.32, 0.68, strata)) * (0.72 + 0.5 * ridge);
+        // Jungle hangs on anywhere it can get a grip, even on sheer limestone.
+        rock = mix(rock, grass * 0.62, ROCK_GREEN * smoothstep(0.34, 0.6, n2 * 0.65 + n3 * 0.45));
 
         // Sand: pale warm, wet and darker close to the waterline.
         vec3 sand = mix(SAND_A, SAND_B, n3);
@@ -160,6 +162,8 @@ export function makeTerrain(): THREE.Group {
 
         // Seabed fades to deep cool colours; water tints it anyway.
         vec3 seabed = mix(sand * 0.75, SEABED, smoothstep(-0.6, -5.0, vP.y));
+        // Dark patches of coral on the pale sand.
+        seabed *= 1.0 - CORAL * smoothstep(0.52, 0.72, n1 * 0.5 + n2 * 0.6) * smoothstep(-0.5, -1.6, vP.y);
 
         float sandTop = SAND_TOP + (n2 - 0.5) * 1.6 + (n3 - 0.5) * 0.6;
         float isSand = 1.0 - smoothstep(sandTop - 0.28, sandTop + 0.28, vP.y);
@@ -353,4 +357,117 @@ export function makeFarMountains(): THREE.Group {
     group.add(m);
   });
   return group;
+}
+
+/**
+ * The wall of the Valley of the Ten Peaks: real relief rather than a painted curtain, close enough to fill
+ * the lake with its reflection. Ten summits stand along the south side, as they do at Moraine Lake, and the
+ * west stays lower so the sun has somewhere to set.
+ */
+export function makeRockies(): THREE.Object3D {
+  const AZ = Math.round(Q.terrainSegs * 1.5);
+  const RAD = 30;
+  const C = { x: -60, z: 0 };
+  const R0 = 1120;
+  const R1 = 1960;
+  const SUNSET_AZ = 2.98;
+  const wrapA = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+  const TEN: { a: number; h: number; w: number }[] = [];
+  for (let i = 0; i < 10; i++) TEN.push({ a: 3.5 + i * 0.165, h: 360 + ((i * 37) % 11) * 16, w: 0.05 + ((i * 13) % 5) * 0.004 });
+  const heightAt = (a: number, t: number, x: number, z: number) => {
+    const line = 170 + 230 * Math.pow(ridged(Math.cos(a) * 2.7 + 5.1, Math.sin(a) * 2.7 - 1.7, 3), 1.25);
+    let top = line;
+    for (const p of TEN) {
+      const d = wrapA(a - p.a) / p.w;
+      top += p.h * Math.exp(-d * d);
+    }
+    const jag = ridged(x * 0.0058, z * 0.0058, 5) * 150 + ridged(x * 0.019, z * 0.019, 3) * 36;
+    const gap = THREE.MathUtils.smoothstep(Math.abs(wrapA(a - SUNSET_AZ)), 0.06, 0.5);
+    const peak = (top + jag) * (0.3 + 0.7 * gap) * 0.78;
+    // Up from the valley floor to the crest, then away down the far side.
+    const up = THREE.MathUtils.smoothstep(t, 0, 0.42);
+    const down = 1 - THREE.MathUtils.smoothstep(t, 0.55, 1);
+    return -6 + peak * up * up * (0.35 + 0.65 * down);
+  };
+  const n = (AZ + 1) * (RAD + 1);
+  const pos = new Float32Array(n * 3);
+  const snowAt = new Float32Array(n);
+  for (let i = 0; i <= AZ; i++) {
+    const a = (i / AZ) * Math.PI * 2;
+    for (let j = 0; j <= RAD; j++) {
+      const t = j / RAD;
+      const r = R0 + (R1 - R0) * t + fbm(a * 7, t * 3, 2) * 40;
+      const x = C.x + Math.cos(a) * r;
+      const z = C.z + Math.sin(a) * r;
+      const k = (i * (RAD + 1) + j) * 3;
+      pos[k] = x;
+      pos[k + 1] = heightAt(a, t, x, z);
+      pos[k + 2] = z;
+      // The glacier comes down low at the head of the lake.
+      const toGlacier = wrapA(a - 3.32) / 0.16;
+      snowAt[i * (RAD + 1) + j] = 240 - 130 * Math.exp(-toGlacier * toGlacier);
+    }
+  }
+  const idx: number[] = [];
+  for (let i = 0; i < AZ; i++) {
+    for (let j = 0; j < RAD; j++) {
+      const p = i * (RAD + 1) + j;
+      const q = p + RAD + 1;
+      idx.push(p, q, p + 1, q, q + 1, p + 1);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('aSnow', new THREE.BufferAttribute(snowAt, 1));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  const mat = new THREE.ShaderMaterial({
+    vertexShader: /* glsl */ `
+      attribute float aSnow;
+      varying vec3 vP;
+      varying vec3 vN;
+      varying float vSnow;
+      void main() {
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vP = wp.xyz;
+        vN = normal;
+        vSnow = aSnow;
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }`,
+    fragmentShader:
+      LIT_FRAG +
+      /* glsl */ `
+      varying vec3 vP;
+      varying vec3 vN;
+      varying float vSnow;
+      void main() {
+        clipBelowWater(vP);
+        vec3 N = normalize(vN);
+        vec2 xz = vP.xz;
+        float n1 = texture2D(uNoise, xz * 0.0021).r;
+        float n2 = texture2D(uNoise, xz * 0.0093).g;
+        float n3 = texture2D(uNoise, xz * 0.041).r;
+        // Grit the shape up with noise, since a slope this far off is only a few triangles.
+        N = normalize(N + vec3(n3 - 0.5, 0.0, n2 - 0.5) * 0.55);
+        float slope = 1.0 - N.y;
+        // Tilted bands of old sea-bed, grey quartzite above and darker shale below.
+        float band = sin((vP.y + vP.x * 0.09 + n1 * 90.0 + n2 * 30.0) * 0.075) * 0.5 + 0.5;
+        vec3 rock = mix(vec3(0.075, 0.07, 0.072), vec3(0.2, 0.17, 0.15), band * 0.22 + n3 * 0.5 + n2 * 0.28);
+        // Scree and dark spruce at the foot.
+        vec3 scree = mix(vec3(0.1, 0.095, 0.09), vec3(0.16, 0.15, 0.14), n3);
+        vec3 ground = mix(scree, rock, smoothstep(0.1, 0.36, slope));
+        vec3 forest = vec3(0.012, 0.03, 0.022) * (0.7 + n3 * 0.7);
+        ground = mix(ground, forest, (1.0 - smoothstep(55.0, 150.0, vP.y + (n2 - 0.5) * 70.0)) * (1.0 - smoothstep(0.42, 0.62, slope)));
+        // Snow lies where it can: thin on steep rock, deep in hollows and on the glacier.
+        float snow = smoothstep(vSnow, vSnow + 70.0, vP.y + (n1 - 0.5) * 80.0 + (n2 - 0.5) * 50.0) * (1.0 - smoothstep(0.34, 0.6, slope + (n3 - 0.5) * 0.2));
+        ground = mix(ground, vec3(0.82, 0.86, 0.94), snow);
+        vec3 col = litSurface(ground, N, vP, 1.0, 0.0);
+        gl_FragColor = vec4(applyFog(col, vP), 1.0);
+      }`,
+    uniforms: { ...U },
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.frustumCulled = false;
+  mesh.layers.set(L.OPAQUE);
+  return mesh;
 }

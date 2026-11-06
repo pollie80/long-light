@@ -188,6 +188,8 @@ export class Input {
       edge(10, 'PadL3');
       edge(4, 'PadL1');
       edge(5, 'PadR1');
+      edge(12, 'PadUp');
+      edge(13, 'PadDown');
       edge(7, 'PadR2');
       edge(8, 'PadShare');
       if (b(0) || b(7)) this.padAction = true;
