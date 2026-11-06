@@ -1,0 +1,35 @@
+// A small hand-drawn icon set, as inline SVG, so the single-file game needs no icon font.
+const svg = (body: string) =>
+  `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+
+export const ICON = {
+  play: svg('<path d="M7 4.5v15l12.5-7.5z" fill="currentColor" stroke-width="1.2"/>'),
+  book: svg('<path d="M12 6.5C10 5 7 4.5 3.5 4.8v13.7c3.5-.3 6.5.2 8.5 1.7 2-1.5 5-2 8.5-1.7V4.8C17 4.5 14 5 12 6.5z"/><path d="M12 6.5v13.7"/>'),
+  hat: svg('<path d="M2.5 16.5c3.5 2 15.5 2 19 0"/><path d="M6.5 15.8c.3-4 .8-8.8 5.5-8.8s5.2 4.8 5.5 8.8"/><path d="M6.6 13.6c3 1 7.8 1 10.8 0"/>'),
+  people: svg('<circle cx="9" cy="8" r="3.2"/><path d="M3 19.5c.4-4 2.8-6 6-6s5.6 2 6 6"/><circle cx="17" cy="9" r="2.5"/><path d="M16.5 13.6c2.6.2 4.2 2 4.5 5"/>'),
+  sun: svg('<circle cx="12" cy="12" r="4"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/>'),
+  clock: svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 7v5.2l3.4 2"/>'),
+  brush: svg('<path d="M19.5 3.5c-3 1.5-7.5 6-9.3 9.2l2.6 2.6c3.2-1.8 7.7-6.3 9.2-9.3z" transform="translate(-1.5 .5)"/><path d="M8.8 13.5c-2.2.3-3 1.7-3.3 3.5-.2 1.2-1 1.8-2 2 2.5 1 7 .8 8-3.2z"/>'),
+  music: svg('<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>'),
+  speaker: svg('<path d="M4 9.5v5h3.5L12.5 19V5L7.5 9.5z"/><path d="M16 9c1 .9 1.5 1.9 1.5 3s-.5 2.1-1.5 3"/><path d="M18.5 6.5c1.7 1.5 2.5 3.3 2.5 5.5s-.8 4-2.5 5.5"/>'),
+  muted: svg('<path d="M4 9.5v5h3.5L12.5 19V5L7.5 9.5z"/><path d="M16.5 9.5l4.5 5M21 9.5l-4.5 5"/>'),
+  mouse: svg('<rect x="6.5" y="3" width="11" height="18" rx="5.5"/><path d="M12 7v3.5"/>'),
+  camera: svg('<path d="M3.5 8.5h3.7L9 5.5h6l1.8 3h3.7v10.5h-17z"/><circle cx="12" cy="13.5" r="3.4"/>'),
+  expand: svg('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>'),
+  keys: svg('<rect x="2.5" y="6.5" width="19" height="11.5" rx="2"/><path d="M6 10h.01M9.5 10h.01M13 10h.01M16.5 10h.01M7.5 14.5h9"/>'),
+  door: svg('<path d="M13.5 4H6v16h7.5"/><path d="M11 12h9.5M17 8.5l3.5 3.5-3.5 3.5"/>'),
+  link: svg('<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'),
+  copy: svg('<rect x="8.5" y="8.5" width="12" height="12" rx="2"/><path d="M15.5 8.5V5.5a2 2 0 0 0-2-2h-8a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h3"/>'),
+  check: svg('<path d="M4.5 12.5l5 5 10-11"/>'),
+  back: svg('<path d="M14.5 5.5L8 12l6.5 6.5"/>'),
+  close: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
+  crown: svg('<path d="M3.5 18h17l1-10-5.5 4-4-7-4 7-5.5-4z"/>'),
+  face: svg('<circle cx="12" cy="12" r="8.5"/><path d="M8.8 10h.01M15.2 10h.01M8.5 14.7c1.9 1.8 5.1 1.8 7 0"/>'),
+  scissors: svg('<circle cx="6.5" cy="6.5" r="2.8"/><circle cx="6.5" cy="17.5" r="2.8"/><path d="M8.7 8.3L20 18M8.7 15.7L20 6"/>'),
+  shirt: svg('<path d="M8.5 3.5L3 7l2 4 2.5-1.3V20.5h9V9.7L19 11l2-4-5.5-3.5c-.7 1.8-2 2.7-3.5 2.7s-2.8-.9-3.5-2.7z"/>'),
+  ruler: svg('<path d="M12 3.5v17"/><path d="M8.5 7L12 3.5 15.5 7M8.5 17l3.5 3.5 3.5-3.5"/>'),
+  dice: svg('<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8.5 8.5h.01M15.5 8.5h.01M12 12h.01M8.5 15.5h.01M15.5 15.5h.01"/>'),
+  party: svg('<path d="M4 20.5l4.5-12 7 7z"/><path d="M14 3.5c.3 1.3 0 2.3-1 3.2M19.5 6c-1.2.3-2.3 0-3.2-1M20.5 12c-1.5-.5-3-.2-4.2 1"/>'),
+  reset: svg('<path d="M4.5 12a7.5 7.5 0 1 0 2.4-5.5"/><path d="M4.5 4v4h4"/>'),
+  bed: svg('<path d="M3 19V6M3 15.5h18V19M21 15.5v-3a3 3 0 0 0-3-3H10.5v6"/><circle cx="6.8" cy="11" r="1.8"/>'),
+};

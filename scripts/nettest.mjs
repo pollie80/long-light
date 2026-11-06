@@ -1,0 +1,253 @@
+// Dev tool: real browsers, real connection service. Plays the whole invite flow and reports.
+// Usage: node scripts/nettest.mjs <outDir> <url>
+import { chromium } from 'playwright-core';
+import path from 'node:path';
+import fs from 'node:fs';
+
+const outDir = process.argv[2];
+const url = process.argv[3];
+// Friends can open a different copy from the host, such as the public one.
+const guestUrl = process.env.LL_GUEST_URL || url;
+fs.mkdirSync(outDir, { recursive: true });
+const browser = await chromium.launch({
+  channel: 'chrome', headless: true,
+  args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist', '--mute-audio'],
+});
+const errors = [];
+const results = [];
+const check = (name, ok, detail = '') => {
+  results.push(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? '  (' + detail + ')' : ''}`);
+  console.log(results.at(-1));
+};
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function open(u, label, expectErrors = false) {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  const page = await ctx.newPage();
+  if (!expectErrors) {
+    page.on('console', (m) => { if (m.type() === 'error' && !m.text().includes('404')) errors.push(`${label}: ${m.text().slice(0, 500)}`); });
+    page.on('pageerror', (e) => errors.push(`${label} PAGEERROR ${e.message}`));
+  }
+  await page.goto(u);
+  await page.waitForFunction(() => window.__ll?.ready === true, null, { timeout: 240000, polling: 300 });
+  await wait(800);
+  return page;
+}
+const until = async (page, fn, arg, ms = 15000) => {
+  try {
+    await page.waitForFunction(fn, arg, { timeout: ms, polling: 150 });
+    return true;
+  } catch {
+    return false;
+  }
+};
+const shot = (page, n) => page.screenshot({ path: path.join(outDir, n + '.png') });
+const visible = (page, sel) => page.locator(sel).isVisible();
+const netOf = (page) => page.evaluate(() => {
+  const g = __ll.game;
+  return { role: g.net.role, slot: g.net.slot, code: g.net.code, players: g.net.players.size, remotes: g.remotes.size, hour: g.hour, running: g.clockRunning, time: g.time, mode: g.mode, home: g.boat.home };
+});
+
+// ---- Title screen ---------------------------------------------------------------------------------
+const host = await open(url, 'host');
+check('title has Play, Your look and friends buttons', (await visible(host, '#tPlay')) && (await visible(host, '#tLook')) && (await visible(host, '#tFriends')));
+await shot(host, '01-title');
+check('nothing invisible blocks the picture', await host.evaluate(() => document.elementFromPoint(640, 330)?.tagName === 'CANVAS'));
+await host.locator('#tLook').click();
+await wait(700);
+check('Your look opens from the title', await host.evaluate(() => __ll.game.ui.wardrobe.open && __ll.game.mode === 'title'));
+await shot(host, '02-title-look');
+await host.locator('#wFoot button[data-w="done"]').click();
+await wait(500);
+check('Done goes back to the title', await host.evaluate(() => !__ll.game.ui.wardrobe.open && __ll.game.mode === 'title' && !document.querySelector('#title').classList.contains('hidden')));
+
+await host.locator('#tFriends').click();
+await wait(400);
+await host.locator('#fName').click();
+await host.keyboard.type('Sam W');
+await wait(300);
+check('typing a name does not start the game', (await netOf(host)).mode === 'title');
+await host.locator('#fStart').click();
+const gotLink = await until(host, () => /#join=/.test(document.querySelector('#fLink').value));
+const link = await host.locator('#fLink').inputValue();
+const code = /#join=(\w+)/.exec(link)?.[1];
+check('invite link is made', gotLink && /^https:\/\/pollie80\.github\.io\/long-light\/#join=[a-z2-9]{6}$/.test(link), link);
+await shot(host, '03-friends');
+await host.locator('#fCopy').click();
+await wait(300);
+const copied = await host.locator('#fCopyT').textContent();
+check('Copy gives an answer', copied === 'Copied' || copied === 'Press Ctrl+C', copied);
+await host.keyboard.press('Escape');
+await wait(400);
+check('Esc in the name box closes the panel', await host.evaluate(() => !__ll.game.ui.friendsOpen && !document.querySelector('#title').classList.contains('hidden')));
+await host.locator('#tPlay').click();
+check('Play starts the game', await until(host, () => __ll.game.mode === 'walk', null, 12000));
+
+// ---- A friend joins -------------------------------------------------------------------------------
+const friend = await open(`${guestUrl}#join=${code}`, 'friend');
+check('invite shows the join card', (await visible(friend, '#tJoin')) && !(await visible(friend, '#tBtns')));
+await shot(friend, '04-join');
+await friend.keyboard.press('KeyX');
+await wait(500);
+check('a stray key does not skip the invite', (await netOf(friend)).mode === 'title');
+await friend.locator('#jName').fill('<img src=x onerror=1>');
+await friend.locator('#jGo').click();
+check('friend gets in', await until(friend, () => __ll.game.net.players.size > 0 && __ll.game.mode !== 'title', null, 25000));
+check('friend reaches the cove', await until(friend, () => __ll.game.mode === 'walk', null, 12000));
+const h1 = await netOf(host);
+const f1 = await netOf(friend);
+check('both see each other', h1.players === 1 && f1.players === 1 && h1.role === 'host' && f1.role === 'guest');
+check('friend has a separate boat place', f1.slot === 1 && f1.home.z < 0, JSON.stringify(f1.home));
+check('friend starts by their own boat', await friend.evaluate(() => Math.hypot(__ll.game.boat.x - __ll.game.boat.home.x, __ll.game.boat.z - __ll.game.boat.home.z) < 1));
+check('time matches', Math.abs(h1.time - f1.time) < 5 && Math.abs(h1.hour - f1.hour) < 0.1, `${h1.hour.toFixed(2)} / ${f1.hour.toFixed(2)}`);
+check('figures appear', await until(host, () => __ll.game.remotes.size === 1) && await until(friend, () => __ll.game.remotes.size === 1));
+check('names stay plain text', await host.evaluate(() => {
+  const tag = document.querySelector('.nameTag');
+  return !!tag && !tag.querySelector('*') && tag.textContent.includes('<img') && !document.querySelector('#fList img');
+}));
+check('joined message shows', await until(host, () => document.querySelector('#toast').textContent.includes('joined')));
+
+// Walks are seen.
+const before = await host.evaluate(() => __ll.game.remotes.get('p1').fisher.root.getWorldPosition(new (__ll.game.camera.position.constructor)()).toArray());
+await friend.keyboard.down('KeyW');
+await wait(2600);
+await friend.keyboard.up('KeyW');
+await wait(800);
+const after = await host.evaluate(() => __ll.game.remotes.get('p1').fisher.root.getWorldPosition(new (__ll.game.camera.position.constructor)()).toArray());
+const fReal = await friend.evaluate(() => [__ll.game.px, __ll.game.py, __ll.game.pz]);
+const moved = Math.hypot(after[0] - before[0], after[2] - before[2]);
+const err = Math.hypot(after[0] - fReal[0], after[2] - fReal[2]);
+check('host sees the friend walk', moved > 3 && err < 0.6, `moved ${moved.toFixed(1)} m, off by ${err.toFixed(2)} m`);
+
+// Stand close and look.
+await friend.evaluate(() => { __ll.place(-10, 0, 0); });
+await host.evaluate(() => { __ll.place(-14, 0, -Math.PI / 2); __ll.setHour(18.2); });
+await wait(2500);
+await host.evaluate(() => { const g = __ll.game; g.yaw = -Math.PI / 2; g.pitch = 0.1; });
+await wait(800);
+await shot(host, '05-host-sees-friend');
+const tag = await host.evaluate(() => {
+  const t = document.querySelector('.nameTag');
+  const r = t.getBoundingClientRect();
+  return { o: +t.style.opacity, x: r.x, y: r.y };
+});
+check('name tag floats over the friend', tag.o > 0.3 && tag.x > 0 && tag.y > 0, JSON.stringify(tag));
+
+// Clock, both ways.
+await host.evaluate(() => __ll.setHour(9.5));
+check('host moves the sun for everyone', await until(friend, () => Math.abs(__ll.game.hour - 9.5) < 0.1, null, 5000));
+await friend.evaluate(() => __ll.setHour(20.3));
+check('friend moves the sun for everyone', await until(host, () => Math.abs(__ll.game.hour - 20.3) < 0.1, null, 5000));
+await friend.evaluate(() => __ll.game.ui.hooks.setClockRunning(true));
+await host.evaluate(() => { __ll.game.ui.hooks.setClockRunning(false); });
+check('pausing the sun reaches friends', await until(friend, () => __ll.game.clockRunning === false, null, 5000));
+await host.evaluate(() => { __ll.game.ui.hooks.setClockRunning(true); __ll.setHour(18.2); __ll.game.ui.hooks.setClockRunning(true); });
+await wait(1500);
+
+// Look, through the real menu.
+await friend.evaluate(() => __ll.game.openMenu());
+await wait(400);
+await shot(friend, '06-menu');
+await friend.locator('#mLook').click();
+await wait(500);
+await friend.locator('#wFoot button[data-w="silly"]').click();
+await wait(400);
+await shot(friend, '07-wardrobe');
+await friend.locator('#wFoot button[data-w="done"]').click();
+await wait(1000);
+const looks = [await friend.evaluate(() => JSON.stringify(__ll.game.fisher.look)), await host.evaluate(() => JSON.stringify(__ll.game.remotes.get('p1').fisher.look))];
+check('a new look reaches friends', looks[0] === looks[1]);
+
+// Boat.
+await host.evaluate(() => __ll.board());
+check('host boards', await until(host, () => __ll.game.mode === 'row', null, 6000));
+check('friend sees host in a boat', await until(friend, () => __ll.game.remotes.get('host').inBoat === true, null, 5000));
+await host.keyboard.down('KeyW');
+await wait(3500);
+await host.keyboard.up('KeyW');
+await wait(800);
+const boats = [await host.evaluate(() => [__ll.game.boat.x, __ll.game.boat.z]), await friend.evaluate(() => [__ll.game.remotes.get('host').boat.x, __ll.game.remotes.get('host').boat.z])];
+const boatErr = Math.hypot(boats[0][0] - boats[1][0], boats[0][1] - boats[1][1]);
+check('rowing is seen', boatErr < 1.2, `off by ${boatErr.toFixed(2)} m`);
+await host.keyboard.down('Space');
+await wait(900);
+await host.keyboard.up('Space');
+check('casting is seen', await until(friend, () => { const r = __ll.game.remotes.get('host'); return r.line.visible && __ll.game.net.players.get('host').state.fs !== 'idle'; }, null, 5000));
+await friend.evaluate(() => { const b = __ll.game.remotes.get('host').boat; __ll.place(-24, 0, 0); const g = __ll.game; g.yaw = Math.atan2(-(b.x - g.px), -(b.z - g.pz)); g.pitch = 0.12; });
+await wait(1500);
+await shot(friend, '08-friend-sees-boat');
+
+// ---- A third player ---------------------------------------------------------------------------------
+const third = await open(`${guestUrl}#join=${code}`, 'third');
+await third.locator('#jName').fill('Jo');
+await third.locator('#jGo').click();
+check('a third person joins', await until(third, () => __ll.game.net.players.size === 2, null, 25000));
+check('third has a boat place of their own', (await netOf(third)).slot === 2);
+check('the others see them', await until(friend, () => __ll.game.net.players.size === 2) && await until(host, () => __ll.game.net.players.size === 2));
+await third.evaluate(() => __ll.game.ui.hooks.friends());
+await wait(300);
+await third.locator('#fLeave').click();
+check('leaving tells everyone', await until(friend, () => __ll.game.net.players.size === 1 && __ll.game.remotes.size === 1) && await until(host, () => __ll.game.net.players.size === 1));
+check('the one who left is alone again', (await netOf(third)).role === 'solo' && (await netOf(third)).remotes === 0);
+await third.context().close();
+
+// ---- A covered host window ---------------------------------------------------------------------------
+await host.evaluate(() => { window.__raf = window.requestAnimationFrame; window.requestAnimationFrame = () => 0; });
+const hA = (await netOf(host)).hour;
+await wait(17000);
+const hB = (await netOf(host)).hour;
+check('friends stay while the host window is covered', (await netOf(friend)).role === 'guest');
+check('the sun keeps going meanwhile', hB > hA, `${hA.toFixed(3)} to ${hB.toFixed(3)}`);
+check('friends stay in time with it', Math.abs((await netOf(friend)).hour - hB) < 0.1);
+await host.evaluate(() => { window.requestAnimationFrame = window.__raf; __ll.game.loop(performance.now()); });
+await wait(1000);
+
+// ---- Host leaves ---------------------------------------------------------------------------------------
+await friend.evaluate(() => { __ll.game.net.tick; });
+await host.evaluate(() => __ll.game.ui.hooks.leaveCove());
+check('friend carries on alone when the host goes', await until(friend, () => __ll.game.net.role === 'solo' && __ll.game.remotes.size === 0, null, 20000));
+check('and is told so', await until(friend, () => document.querySelector('#toast').textContent.includes('closed their game'), null, 3000));
+const fEnd = await netOf(friend);
+check('friend goes back to the first boat place', fEnd.home.z > 0);
+await wait(800);
+check('no leftover name tags', await friend.evaluate(() => document.querySelectorAll('.nameTag').length === 0));
+
+// ---- A dead invite -------------------------------------------------------------------------------------
+const dead = await open(`${url}#join=zzzzzz`, 'dead', true);
+await dead.locator('#jGo').click();
+check('a dead invite explains itself', await until(dead, () => document.querySelector('#jStatus').classList.contains('bad'), null, 30000), await dead.locator('#jStatus').textContent());
+await shot(dead, '09-dead-invite');
+check('can play alone instead', await visible(dead, '#jAlone'));
+await dead.locator('#jAlone').click();
+check('and that works', await until(dead, () => __ll.game.mode !== 'title', null, 5000));
+
+// ---- Every boat place works, on both sides of the jetty ------------------------------------------------
+for (let i = 0; i < 8; i++) {
+  const r = await dead.evaluate(async (slot) => {
+    const g = __ll.game;
+    const sleep = (ms) => new Promise((f) => setTimeout(f, ms));
+    g.setBoatSlot(slot);
+    await sleep(100);
+    __ll.place(g.boat.home.x, 0, Math.PI / 2);
+    await sleep(500);
+    return { prompt: document.querySelector('#prompt').textContent, home: g.boat.home, at: [g.boat.x, g.boat.z] };
+  }, i);
+  const offered = /boat/.test(r.prompt);
+  let rowed = false;
+  let back = false;
+  if (offered) {
+    await dead.keyboard.press('KeyE');
+    rowed = await until(dead, () => __ll.game.mode === 'row', null, 5000);
+    if (rowed) {
+      await dead.keyboard.press('KeyE');
+      back = await until(dead, () => __ll.game.mode === 'walk' && Math.abs(__ll.game.pz) < 1.4, null, 6000);
+    }
+  }
+  check(`boat place ${i + 1}: board and step off`, offered && rowed && back, `${r.home.x}, ${r.home.z} ${offered ? '' : 'no prompt: ' + r.prompt}`);
+}
+
+check('no errors', errors.length === 0, errors.slice(0, 5).join(' | '));
+await browser.close();
+const fails = results.filter((r) => r.startsWith('FAIL')).length;
+console.log(`\n${results.length - fails}/${results.length} passed`);
+process.exit(fails ? 1 : 0);

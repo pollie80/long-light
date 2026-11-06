@@ -1,0 +1,26 @@
+{
+  "name": "long-light",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5188",
+    "build": "tsc --noEmit && vite build",
+    "test": "vitest run",
+    "deploy": "npm run build && node scripts/publish.mjs"
+  },
+  "dependencies": {
+    "@fontsource/caveat": "^5.3.0",
+    "@fontsource/cormorant-garamond": "^5.3.0",
+    "peerjs": "^1.5.5",
+    "three": "^0.187.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.187.0",
+    "playwright-core": "^1.65.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.6",
+    "vite-plugin-singlefile": "^2.3.4",
+    "vitest": "^5.1.0"
+  }
+}
