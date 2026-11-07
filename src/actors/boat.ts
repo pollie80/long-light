@@ -58,6 +58,20 @@ function strake(v0: number, v1: number, side: number, inset: number, flip: boole
   return g;
 }
 
+/**
+ * Where passengers sit, in the boat's own space, facing the bow and the rower. Everyone can fit, if not comfortably:
+ * two on the stern seat's side, then the floor, then the bow.
+ */
+const PASSENGER_SEATS: [number, number, number][] = [
+  [0, -0.03, 1.42],
+  [0.3, -0.2, 0.58],
+  [-0.3, -0.2, 0.58],
+  [0.28, -0.2, -0.62],
+  [-0.28, -0.2, -0.62],
+  [0, 0.05, -1.08],
+  [0, 0.14, 1.95],
+];
+
 export class Boat {
   group = new THREE.Group();
   body = new THREE.Group();
@@ -91,6 +105,12 @@ export class Boat {
   /** Where a pet sits, in the boat's own space. */
   petSeat = new THREE.Vector3(0, 0.46, -1.05);
   private petSeatBase = new THREE.Vector3(0, 0.46, -1.05);
+  /** A passenger's place, by their position in the queue. */
+  passengerSeat(i: number, out: THREE.Vector3): THREE.Vector3 {
+    const [x, y, z] = PASSENGER_SEATS[Math.max(0, i) % PASSENGER_SEATS.length];
+    return out.set(x * this.beamNow, y, z);
+  }
+
   /** The pet comes closer to be patted, along the middle of the boat. */
   petSeatAt(patting: number, out: THREE.Vector3): THREE.Vector3 {
     return out.copy(this.petSeatBase).setZ(this.petSeatBase.z + (0.58 - 0.0) * patting);
@@ -98,6 +118,7 @@ export class Boat {
 
   /** Lantern colour, for the light it throws. */
   lanternRGB = new THREE.Color(1.0, 0.55, 0.2);
+  private beamNow = 1;
   private hullMesh: THREE.Mesh | null = null;
   private lookKey = '';
   private lanternAt = new THREE.Vector3(0.42, sheer(0) + 0.9, 1.92);
@@ -132,6 +153,7 @@ export class Boat {
     const hasHull = style === 'dinghy' || style === 'canoe' || style === 'bangka';
     beamK = hasHull && style !== 'dinghy' ? 0.62 : 1;
     pointedStern = style === 'canoe' || style === 'bangka';
+    this.beamNow = beamK;
     this.lanternRGB.set(lightCol);
 
     const b = new Builder(808);

@@ -15,7 +15,18 @@ import type { NetState } from './protocol';
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 const LINE_POINTS = 18;
 
+/** What a friend's figure needs to know about the rest of the cove, to sit in someone else's boat. */
+export interface RemoteWorld {
+  boatOf(id: string): Boat | null;
+  seatOf(player: string, owner: string): number;
+}
+
 export class RemotePlayer {
+  id = '';
+  world: RemoteWorld | null = null;
+  private attachedTo: THREE.Object3D | null = null;
+  private seatTarget = new THREE.Vector3();
+  private petSeat = new THREE.Vector3();
   fisher: Fisher;
   boat: Boat;
   pet: Pet;
@@ -82,16 +93,15 @@ export class RemotePlayer {
     if (!this.seen) this.pet.root.visible = false;
   }
 
-  private setBoarded(v: boolean) {
-    if (v === this.inBoat) return;
+  /** Puts the figure in a boat, theirs or a friend's, or back on its own feet. */
+  private setBoarded(v: boolean, vessel: Boat) {
     this.inBoat = v;
-    if (v) {
-      this.boat.body.add(this.fisher.root);
-      this.fisher.root.position.set(0, -0.03, -0.02);
-    } else {
-      this.scene.add(this.fisher.root);
-      this.fisher.root.position.set(this.x, this.y, this.z);
-    }
+    const parent = v ? vessel.body : this.scene;
+    if (this.attachedTo === parent) return;
+    this.attachedTo = parent;
+    parent.add(this.fisher.root);
+    if (v) this.fisher.root.position.copy(this.seatTarget);
+    else this.fisher.root.position.set(this.x, this.y, this.z);
   }
 
   update(dt: number, t: number, s: NetState | null, water: Water, camera: THREE.PerspectiveCamera, lampK: number, viewW: number, viewH: number) {
@@ -115,8 +125,16 @@ export class RemotePlayer {
     this.boat.puppet(dt, t, s.bx, s.bz, s.bh, s.bs, s.bp, s.bo, s.br, water);
     this.boat.mat.uniforms.uEmisOn.value = lampK;
 
-    this.setBoarded(s.ib);
-    if (s.ib) {
+    // Their own boat, or the one they've climbed into.
+    const other = s.ride && this.world ? this.world.boatOf(s.ride) : null;
+    const vessel = other ?? this.boat;
+    const riding = other !== null;
+    if (riding) other.passengerSeat(this.world!.seatOf(this.id, s.ride), this.seatTarget);
+    else this.seatTarget.set(0, -0.03, -0.02);
+    this.setBoarded(s.ib || riding, vessel);
+    // Shuffling up when someone gets off, rather than jumping.
+    if (s.ib || riding) this.fisher.root.position.lerp(this.seatTarget, 1 - Math.exp(-dt * 5));
+    if (s.ib || riding) {
       this.fy += wrap(s.fy - this.fy) * (1 - Math.exp(-dt * 8));
       this.fisher.root.rotation.set(0, this.fy, 0);
     } else {
@@ -168,12 +186,13 @@ export class RemotePlayer {
     this.fisher.update(dt, t, pose);
     this.pet.update(dt, t, {
       pos: this.fisher.root.getWorldPosition(this.tmp2),
-      facing: s.ib ? s.bh : this.yaw,
+      facing: s.ib ? s.bh : riding ? vessel.heading : this.yaw,
       speed: s.sp,
-      inBoat: s.ib,
+      inBoat: s.ib || riding,
       air: s.air,
-      boat: this.boat,
+      boat: vessel,
       patting: s.pat,
+      rideSeat: riding ? this.petSeat.set(this.seatTarget.x, this.seatTarget.y + 0.36, this.seatTarget.z - 0.52) : undefined,
     });
 
     this.updateFishing(t, s, water);

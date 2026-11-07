@@ -18,6 +18,8 @@ export interface PetOwner {
   boat: Boat;
   /** Being patted: comes to the owner's front, sits, and enjoys it. */
   patting: boolean;
+  /** Its place when its owner is a passenger: in front of them, in the boat's own space. */
+  rideSeat?: THREE.Vector3;
 }
 
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -377,7 +379,7 @@ export class Pet {
   }
 
   private updateRider(dt: number, o: PetOwner) {
-    if (!this.riding) {
+    if (!this.riding || this.root.parent !== o.boat.body) {
       this.riding = true;
       o.boat.body.add(this.root);
       this.rideK = 0;
@@ -385,7 +387,7 @@ export class Pet {
       this.placed = false;
     }
     this.rideK = Math.min(1, this.rideK + dt * 2.4);
-    const seat = o.boat.petSeatAt(this.patK, this.seatTmp);
+    const seat = o.rideSeat ? this.seatTmp.copy(o.rideSeat).setZ(o.rideSeat.z + 0.12 * this.patK) : o.boat.petSeatAt(this.patK, this.seatTmp);
     this.root.position.set(seat.x, seat.y + this.parts!.sit * this.size + this.hop, seat.z);
     // Turns round to face whoever's patting it.
     this.root.rotation.set(0, Math.PI * this.patK, 0);

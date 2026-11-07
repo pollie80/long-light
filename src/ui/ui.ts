@@ -237,7 +237,7 @@ export class UI {
           <div class="keyRow"><span><kbd>Shift</kbd></span>Hurry, or row twice as fast</div>
           <div class="keyRow"><span><kbd>Space</kbd> tap</span>Jump</div>
           <h4>Doing</h4>
-          <div class="keyRow"><span><kbd>E</kbd></span>Use what is nearby</div>
+          <div class="keyRow"><span><kbd>E</kbd></span>Use what is nearby, or climb into a friend's boat</div>
           <div class="keyRow"><span><kbd>Space</kbd> hold or <kbd>Click</kbd></span>Cast, hook, reel</div>
           <div class="keyRow"><span><kbd>B</kbd></span>Have a beer</div>
           <div class="keyRow"><span><kbd>P</kbd></span>Pat your pet, ashore or afloat</div>

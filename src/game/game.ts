@@ -31,12 +31,14 @@ import { RemotePlayer } from '../net/remote';
 import { cleanName, codeFromHash, inviteLink, NetState } from '../net/protocol';
 import { SPECIES, TIER_LABEL } from './fishdata';
 
-type Mode = 'title' | 'intro' | 'walk' | 'transition' | 'row' | 'sit';
+type Mode = 'title' | 'intro' | 'walk' | 'transition' | 'row' | 'sit' | 'ride';
 
 const SAVE_KEY = 'longlight.save.v1';
 const DOOR = { x: 112.4, z: COTTAGE.z };
 const START = pathPoint(9);
 
+/** Where a passenger's pet sits: on the boards at their feet. */
+const RIDE_PET_OFFSET = new THREE.Vector3(0, 0.36, -0.52);
 const JUMP_SPEED = 4.4;
 const GRAVITY = 12.5;
 /** Where you can cast, a press shorter than this is a jump and a longer one is a cast. */
@@ -91,6 +93,11 @@ export class Game {
   private netStatus = '';
   private joinCode: string | null = null;
   airborne = false;
+  /** Whose boat we're a passenger in, once settled, and on the way to it. */
+  rideWith: string | null = null;
+  private ridePending: string | null = null;
+  private seatTmp = new THREE.Vector3();
+  private petRideSeat = new THREE.Vector3();
   hunt!: Hunt;
   gunOut = false;
   fireworks!: Fireworks;
@@ -368,6 +375,8 @@ export class Game {
         this.ui.toast(`${p.name} joined the cove.`, 4);
       },
       onLeave: (p) => {
+        // Before their boat disappears from under us.
+        if (this.rideWith === p.id || this.ridePending === p.id) this.endRide(`${p.name} left, so you're back on the jetty.`);
         const r = this.remotes.get(p.id);
         if (r) {
           r.dispose();
@@ -527,12 +536,13 @@ export class Game {
     const pose = this.lastPose ?? this.buildPose();
     const rod = pose.rodDir!;
     return {
-      x: r(p.x), y: r(p.y), z: r(p.z), yaw: r(this.inBoat ? 0 : root.rotation.y),
+      x: r(p.x), y: r(p.y), z: r(p.z), yaw: r(this.seated ? 0 : root.rotation.y),
       air: this.airborne,
       gun: this.gunOut,
       shots: this.shotsFired,
       pat: this.patT > 0,
       ch: this.cheersT > 0,
+      ride: this.rideWith ?? '',
       mode: pose.mode,
       sp: r(pose.speed),
       ib: this.inBoat, fy: r(this.fisherYaw),
@@ -553,6 +563,11 @@ export class Game {
       let r = this.remotes.get(p.id);
       if (!r) {
         r = new RemotePlayer(this.scene, this.pipe.late, this.lineMat, p.look, p.name, document.getElementById('ui')!);
+        r.id = p.id;
+        r.world = {
+          boatOf: (id) => (id === this.net.myId ? this.boat : this.remotes.get(id)?.boat ?? null),
+          seatOf: (player, owner) => this.seatOf(player, owner),
+        };
         r.onShot = (at) => {
           const d = at.distanceTo(this.camera.position);
           this.audio.shot(Math.max(0.12, Math.min(0.8, 24 / (d + 8))));
@@ -1045,8 +1060,12 @@ export class Game {
     const atEnd = onDeck && this.px < JETTY.endX + 2.2;
     const benchD = Math.hypot(this.px - this.props.bench.x, this.pz - this.props.bench.z);
     const doorD = Math.hypot(this.px - DOOR.x, this.pz - DOOR.z);
+    // A friend's boat within a step, unless your own is nearer.
+    const friendBoat = canUse ? this.friendBoatNear(3.7) : null;
+    const preferFriend = friendBoat !== null && (!atBoat || friendBoat.d < Math.hypot(this.px - this.boat.x, this.pz - this.boat.z));
     if (canUse) {
-      if (atEnd) prompt = `${E} sit at the end of the jetty`;
+      if (preferFriend) prompt = `${E} climb into ${this.safeName(friendBoat!.name)}'s boat`;
+      else if (atEnd) prompt = `${E} sit at the end of the jetty`;
       else if (atBoat) prompt = `${E} step into the boat`;
       else if (benchD < 2.3) prompt = `${E} sit a while`;
       else if (doorD < 2.3) prompt = `${E} go in and rest`;
@@ -1056,7 +1075,8 @@ export class Game {
     if (canUse && !this.ui.menuOpen) this.ui.prompt(this.withSocial(prompt));
 
     if (canUse && (inp.was('KeyE') || inp.was('PadSquare'))) {
-      if (atEnd) this.enterSit('dock');
+      if (preferFriend) this.boardFriend(friendBoat!.id);
+      else if (atEnd) this.enterSit('dock');
       else if (atBoat) this.boardBoat();
       else if (benchD < 2.3) this.enterSit('bench');
       else if (doorD < 2.3) {
@@ -1224,11 +1244,179 @@ export class Game {
     let prompt: string | null = null;
     const E = inp.usingPad ? '<kbd>Square</kbd>' : '<kbd>E</kbd>';
     if (!fishingActive && nearMoor) prompt = `${E} step onto the jetty`;
+    // Alongside a friend out on the water, you can climb across. Your own boat finds its own way home.
+    const alongside = !fishingActive && !nearMoor ? this.friendBoatNear(6.5) : null;
+    if (alongside) prompt = `${E} climb across to ${this.safeName(alongside.name)}'s boat`;
     if (!fishingActive) this.ui.prompt(this.withSocial(prompt));
     if (!fishingActive && nearMoor && (inp.was('KeyE') || inp.was('PadSquare'))) this.leaveBoat();
+    else if (alongside && (inp.was('KeyE') || inp.was('PadSquare'))) this.boardFriend(alongside.id);
 
     const seat = this.boat.seat(new THREE.Vector3());
     if (!this.gunOut) this.handleCast(dt, seat.clone().add(new THREE.Vector3(0, 0.75, 0)));
+  }
+
+  private safeName(name: string): string {
+    return name.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+  }
+
+  /** The boat being sailed in, whoever's it is. */
+  private get vessel(): Boat {
+    return (this.rideWith ? this.remotes.get(this.rideWith)?.boat : null) ?? this.boat;
+  }
+
+  private get seated(): boolean {
+    return this.inBoat || this.rideWith !== null;
+  }
+
+  private friendBoatNear(reach: number): { id: string; name: string; d: number } | null {
+    if (!this.net.live) return null;
+    const me = this.fisher.root.getWorldPosition(new THREE.Vector3());
+    let best: { id: string; name: string; d: number } | null = null;
+    for (const p of this.net.players.values()) {
+      const r = this.remotes.get(p.id);
+      if (!r || !p.state) continue;
+      const d = Math.hypot(r.boat.x - me.x, r.boat.z - me.z);
+      if (d < reach && (!best || d < best.d)) best = { id: p.id, name: p.name, d };
+    }
+    return best;
+  }
+
+  /** Everyone in a boat works out the seating the same way: by id, so nobody has to arrange it. */
+  private seatOf(player: string, owner: string): number {
+    const riders: string[] = [];
+    for (const p of this.net.players.values()) if (p.state?.ride === owner) riders.push(p.id);
+    if ((this.rideWith ?? this.ridePending) === owner) riders.push(this.net.myId);
+    riders.sort();
+    return riders.indexOf(player);
+  }
+
+  private boardFriend(id: string) {
+    const first = this.remotes.get(id);
+    if (!first) return;
+    this.fishing.reelIn();
+    this.ui.prompt(null);
+    this.audio.creak(0.2);
+    this.strolling = false;
+    this.patT = 0;
+    const from = this.fisher.root.getWorldPosition(new THREE.Vector3());
+    const fromYaw = this.facingYaw();
+    if (this.inBoat) {
+      // Over the side, and your own boat goes home by itself.
+      this.scene.add(this.fisher.root);
+      this.fisher.root.position.copy(from);
+      this.inBoat = false;
+      this.boat.moored = true;
+    }
+    this.ridePending = id;
+    const here = () => this.remotes.get(id)?.boat ?? null;
+    this.tr = {
+      t: 0, dur: 1.3, from,
+      to: () => {
+        const b = here();
+        if (!b) return from;
+        b.body.updateMatrixWorld();
+        return b.passengerSeat(this.seatOf(this.net.myId, id), this.seatTmp).clone().applyMatrix4(b.body.matrixWorld);
+      },
+      fromYaw,
+      toYaw: () => here()?.heading ?? fromYaw,
+      done: () => {
+        const b = here();
+        this.ridePending = null;
+        if (!b) return;
+        this.rideWith = id;
+        b.body.add(this.fisher.root);
+        b.passengerSeat(this.seatOf(this.net.myId, id), this.fisher.root.position);
+        this.fisher.root.rotation.set(0, 0, 0);
+        this.fisherYaw = 0;
+        this.mode = 'ride';
+        this.water.splash(b.x, b.z, 0.7, 0.06);
+        this.audio.splash(0.15);
+      },
+    };
+    this.mode = 'transition';
+  }
+
+  /** Nearest place to step off: the jetty if it's alongside, otherwise the closest bit of solid ground in reach. */
+  private landingNear(b: Boat): THREE.Vector3 | null {
+    if (b.x < JETTY.startX + 3 && b.x > JETTY.endX - 3 && Math.abs(b.z) < 8) {
+      return new THREE.Vector3(clamp(b.x, JETTY.endX + 0.6, JETTY.startX - 0.4), DECK_Y, Math.sign(b.z || 1) * 0.4);
+    }
+    for (let r = 2; r <= 12; r += 2) {
+      for (let i = 0; i < 16; i++) {
+        const a = (i / 16) * Math.PI * 2;
+        const x = b.x + Math.cos(a) * r;
+        const z = b.z + Math.sin(a) * r;
+        const y = groundY(x, z);
+        if (y > 0.3 && this.walkable(x, z)) return new THREE.Vector3(x, y, z);
+      }
+    }
+    return null;
+  }
+
+  private updateRide(dt: number) {
+    const id = this.rideWith;
+    const owner = id ? this.remotes.get(id) : null;
+    if (!id || !owner) {
+      this.endRide(null);
+      return;
+    }
+    const b = owner.boat;
+    // Shuffles up if someone ahead gets off.
+    const seat = b.passengerSeat(this.seatOf(this.net.myId, id), this.seatTmp);
+    this.fisher.root.position.lerp(seat, 1 - Math.exp(-dt * 5));
+    const inp = this.input;
+    const busy = this.fishing.active;
+    const pad = inp.usingPad;
+    const E = pad ? '<kbd>Square</kbd>' : '<kbd>E</kbd>';
+    const landing = this.landingNear(b);
+    if (!busy) this.ui.prompt(this.withSocial(landing ? `${E} step ashore` : null));
+    if (!busy && (inp.was('KeyE') || inp.was('PadSquare'))) {
+      if (landing) this.stepOff(landing);
+      else this.ui.toast('Too far out to step off. Ask them to row closer.', 3);
+    }
+    if (!this.gunOut) this.handleCast(dt, new THREE.Vector3());
+  }
+
+  private stepOff(landing: THREE.Vector3) {
+    this.fishing.reelIn();
+    this.ui.prompt(null);
+    this.audio.creak(0.2);
+    const from = this.fisher.root.getWorldPosition(new THREE.Vector3());
+    const fromYaw = this.facingYaw();
+    this.scene.add(this.fisher.root);
+    this.fisher.root.position.copy(from);
+    this.fisher.root.rotation.set(0, fromYaw, 0);
+    this.rideWith = null;
+    const toYaw = Math.atan2(-(landing.x - from.x), -(landing.z - from.z));
+    this.tr = {
+      t: 0, dur: 1.3, from, to: () => landing, fromYaw, toYaw: () => toYaw,
+      done: () => {
+        this.mode = 'walk';
+        this.px = landing.x;
+        this.pz = landing.z;
+        this.py = landing.y;
+        this.facing = toYaw;
+      },
+    };
+    this.mode = 'transition';
+  }
+
+  /** The boat's gone: back to the jetty, by whatever means. */
+  private endRide(message: string | null) {
+    this.rideWith = null;
+    this.ridePending = null;
+    this.tr = null;
+    this.fishing.reelIn();
+    this.scene.add(this.fisher.root);
+    this.px = this.boat.home.x;
+    this.pz = Math.sign(this.boat.home.z) * 0.4;
+    this.py = DECK_Y;
+    this.facing = -Math.PI / 2;
+    this.speed = 0;
+    this.fisher.root.position.set(this.px, this.py, this.pz);
+    this.fisher.root.rotation.set(0, this.facing, 0);
+    this.mode = 'walk';
+    if (message) this.ui.toast(message, 5);
   }
 
   private handleCast(dt: number, from: THREE.Vector3) {
@@ -1300,7 +1488,7 @@ export class Game {
       if (!r) continue;
       const at = r.fisher.root.getWorldPosition(new THREE.Vector3());
       const d = at.distanceTo(me);
-      if (d < bd && d < this.cheersReach(this.inBoat || p.state.ib)) {
+      if (d < bd && d < this.cheersReach(this.seated || p.state.ib || p.state.ride !== '')) {
         bd = d;
         best = { name: p.name, at, raised: p.state.ch };
       }
@@ -1321,7 +1509,7 @@ export class Game {
       const name = friend.name.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
       parts.push(friend.raised ? `<kbd>C</kbd> ${name} wants to cheers!` : `<kbd>C</kbd> cheers with ${name}`);
     }
-    if (this.pet.exists && this.patT <= 0 && !this.gunOut && this.canPat() && (this.inBoat ? !this.patHintBoat : !this.patted)) {
+    if (this.pet.exists && this.patT <= 0 && !this.gunOut && this.canPat() && (this.seated ? !this.patHintBoat : !this.patted)) {
       parts.push(`<kbd>P</kbd> pat the ${this.pet.name}`);
     }
     return parts.length ? parts.join('&emsp;') : null;
@@ -1329,18 +1517,18 @@ export class Game {
 
   private canPat(): boolean {
     if (!this.pet.exists || this.fishing.active || this.gunOut || this.beer.active || this.cheersT > 0) return false;
-    if (this.inBoat) return true;
+    if (this.seated) return true;
     return this.pet.worldPos(this.petTmp).distanceTo(this.fisher.root.getWorldPosition(this.petTmp2)) < 3.2;
   }
 
   private updateSocial(dt: number, menu: boolean) {
     const inp = this.input;
-    const canAct = !menu && (this.mode === 'walk' || this.mode === 'row' || this.mode === 'sit');
+    const canAct = !menu && (this.mode === 'walk' || this.mode === 'row' || this.mode === 'sit' || this.mode === 'ride');
     // Patting.
     if (canAct && (inp.was('KeyP') || inp.was('PadDown')) && this.canPat()) {
       this.patT = 2.8;
       this.patted = true;
-      if (this.inBoat) this.patHintBoat = true;
+      if (this.seated) this.patHintBoat = true;
       this.speed = 0;
       this.audio.uiTick();
     }
@@ -1369,11 +1557,11 @@ export class Game {
   private checkClinks() {
     if (!this.net.live) return;
     const raised: { id: string; at: THREE.Vector3; boat: boolean }[] = [];
-    if (this.cheersT > 0) raised.push({ id: this.net.myId, at: this.fisher.root.getWorldPosition(new THREE.Vector3()), boat: this.inBoat });
+    if (this.cheersT > 0) raised.push({ id: this.net.myId, at: this.fisher.root.getWorldPosition(new THREE.Vector3()), boat: this.seated });
     for (const p of this.net.players.values()) {
       if (!p.state?.ch) continue;
       const r = this.remotes.get(p.id);
-      if (r) raised.push({ id: p.id, at: r.fisher.root.getWorldPosition(new THREE.Vector3()), boat: p.state.ib });
+      if (r) raised.push({ id: p.id, at: r.fisher.root.getWorldPosition(new THREE.Vector3()), boat: p.state.ib || p.state.ride !== '' });
     }
     if (raised.length < 2) return;
     const now = performance.now();
@@ -1410,7 +1598,7 @@ export class Game {
   }
 
   private toggleGun() {
-    if (this.fishing.active || this.beer.active || (this.mode !== 'walk' && this.mode !== 'row')) return;
+    if (this.fishing.active || this.beer.active || !this.canHoldGun) return;
     this.gunOut = !this.gunOut;
     this.audio.uiTick();
     this.ui.sights(this.gunOut ? this.shells : null);
@@ -1446,6 +1634,10 @@ export class Game {
     }
   }
 
+  private get canHoldGun(): boolean {
+    return this.mode === 'walk' || this.mode === 'row' || this.mode === 'ride';
+  }
+
   private updateGun(dt: number, menu: boolean) {
     const inp = this.input;
     if (!menu && (inp.was('KeyG') || inp.was('PadR1'))) this.toggleGun();
@@ -1458,8 +1650,8 @@ export class Game {
         if (this.gunOut) this.ui.sights(this.shells);
       }
     }
-    if (this.gunOut && !menu && (this.mode === 'walk' || this.mode === 'row') && !this.wasMenu && (inp.was('Mouse') || inp.was('PadR2') || inp.was('KeyF'))) this.fireGun();
-    if (this.gunOut && this.mode !== 'walk' && this.mode !== 'row') {
+    if (this.gunOut && !menu && this.canHoldGun && !this.wasMenu && (inp.was('Mouse') || inp.was('PadR2') || inp.was('KeyF'))) this.fireGun();
+    if (this.gunOut && !this.canHoldGun) {
       this.gunOut = false;
       this.ui.sights(null);
     }
@@ -1510,7 +1702,7 @@ export class Game {
       inp.wheel = 0;
       const p = kind === 'boat' ? new THREE.Vector3(this.boat.x, this.boat.y, this.boat.z) : kind === 'pet' ? this.pet.worldPos() : this.fisher.root.getWorldPosition(new THREE.Vector3());
       const eye = kind === 'boat' ? 1.7 : kind === 'pet' ? 0.5 : this.fisher.eyeHeight;
-      const seated = kind === 'self' && (this.inBoat || this.mode === 'sit');
+      const seated = kind === 'self' && (this.seated || this.mode === 'sit');
       const top = seated ? eye - 0.42 : eye;
       const close = kind === 'self' ? 1 - smoothstep(1.2, 2.6, this.wardrobeDist) : 0;
       const fy = p.y + top * (0.62 + 0.38 * close);
@@ -1534,12 +1726,12 @@ export class Game {
     inp.wheel = 0;
 
     // Sighting along the barrels, just behind the right shoulder.
-    if (this.gunOut && (this.mode === 'walk' || this.mode === 'row')) {
+    if (this.gunOut && this.canHoldGun) {
       this.pitch = clamp(this.pitch, -1.25, 0.55);
       const cp = Math.cos(this.pitch);
       const dir = new THREE.Vector3(-Math.sin(this.yaw) * cp, -Math.sin(this.pitch), -Math.cos(this.yaw) * cp);
       const head = this.fisher.root.getWorldPosition(new THREE.Vector3());
-      head.y += this.fisher.eyeHeight - (this.inBoat ? 0.42 : 0.02);
+      head.y += this.fisher.eyeHeight - (this.seated ? 0.42 : 0.02);
       const side = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
       const pos = head.clone().addScaledVector(side, 0.68).addScaledVector(dir, -2.4);
       pos.y += 0.18 + this.recoil * 0.05;
@@ -1560,8 +1752,9 @@ export class Game {
     let fov = 44;
     let sideOffset = 0.75;
     const focus = new THREE.Vector3();
-    if (this.mode === 'row' || (this.mode === 'transition' && this.inBoat)) {
-      focus.set(this.boat.x, this.boat.y + 1.15 * this.fisher.look.height, this.boat.z);
+    if (this.mode === 'row' || this.mode === 'ride' || (this.mode === 'transition' && this.inBoat)) {
+      const v = this.vessel;
+      focus.set(v.x, v.y + 1.15 * this.fisher.look.height, v.z);
       desiredDist = 8.2;
       fov = 42;
       sideOffset = 0.9;
@@ -1600,9 +1793,9 @@ export class Game {
     }
     // So does a pat, and lower, where the hand and the pet are.
     if (this.patK > 0.05) {
-      desiredDist *= 1 - this.patK * (this.inBoat ? 0.5 : 0.48);
+      desiredDist *= 1 - this.patK * (this.seated ? 0.5 : 0.48);
       sideOffset = 0;
-      focus.y -= this.patK * (this.inBoat ? 0.35 : 0.72);
+      focus.y -= this.patK * (this.seated ? 0.35 : 0.72);
     }
     // Compose to one side: the eye goes past the figure, out to the water.
     this.sideNow = damp(this.sideNow, this.fishing.state === 'landed' ? 0 : sideOffset, 1.6, dt);
@@ -1665,7 +1858,7 @@ export class Game {
   }
 
   private facingYaw(): number {
-    return this.inBoat ? this.boat.heading + this.fisherYaw : this.facing;
+    return this.seated ? this.vessel.heading + this.fisherYaw : this.facing;
   }
 
   private titleCamera(t: number) {
@@ -1774,6 +1967,8 @@ export class Game {
       this.updateWalk(dt);
     } else if (this.mode === 'row') {
       this.updateRow(dt, t);
+    } else if (this.mode === 'ride') {
+      this.updateRide(dt);
     } else if (this.mode === 'sit') {
       this.updateSit(dt);
     } else if (this.mode === 'transition' && this.tr) {
@@ -1848,12 +2043,13 @@ export class Game {
     this.fisher.update(dt, t, pose);
     this.pet.update(dt, t, {
       pos: this.fisher.root.getWorldPosition(this.petTmp2),
-      facing: this.inBoat ? this.boat.heading : this.facing,
+      facing: this.seated ? this.vessel.heading : this.facing,
       speed: Math.max(this.speed, this.mode === 'transition' ? 2 : 0),
-      inBoat: this.inBoat,
+      inBoat: this.seated,
       air: this.airborne,
-      boat: this.boat,
+      boat: this.vessel,
       patting: this.patT > 0,
+      rideSeat: this.rideWith ? this.petRideSeat.copy(this.fisher.root.position).add(RIDE_PET_OFFSET) : undefined,
     });
     if (!warm) this.adaptQuality(dt);
     if (this.save.showFps) {
@@ -1929,7 +2125,7 @@ export class Game {
   private updateBeer(dt: number, menu: boolean) {
     const inp = this.input;
     const handsFree = this.fishing.state === 'idle' || this.fishing.state === 'wait';
-    const canDrink = handsFree && (this.mode === 'walk' || this.mode === 'sit' || this.mode === 'row');
+    const canDrink = handsFree && (this.mode === 'walk' || this.mode === 'sit' || this.mode === 'row' || this.mode === 'ride');
     if (!canDrink) this.beer.putAway();
     // Taking up the oars means putting the bottle down first.
     if (this.mode === 'row' && !this.fishing.active && Math.abs(inp.moveX) + Math.abs(inp.moveY) > 0.05) this.beer.putAway();
@@ -1950,6 +2146,7 @@ export class Game {
     if (this.mode === 'sit') mode = this.sitKind === 'dock' ? 'dockSit' : 'benchSit';
     const showing = this.fishingShows && !this.gunOut;
     if (this.inBoat) mode = showing || this.gunOut ? 'boatSit' : 'row';
+    if (this.rideWith) mode = 'boatSit';
     const handleL = new THREE.Vector3();
     const handleR = new THREE.Vector3();
     if (this.inBoat) {
@@ -1960,6 +2157,13 @@ export class Game {
       // Round on the thwart: to face a cast or a shot, the pet up in the bow, a friend's raised bottle, or back to the oars.
       const friend = this.cheersT > 0 ? this.nearestFriend() : null;
       const aimYaw = this.patT > 0 ? 0 : friend ? Math.atan2(-(friend.at.x - this.boat.x), -(friend.at.z - this.boat.z)) - this.boat.heading : showing || this.gunOut ? Math.atan2(-this.aimDir().x, -this.aimDir().z) - this.boat.heading : Math.PI;
+      this.fisherYaw += wrapAngle(aimYaw - this.fisherYaw) * (1 - Math.exp(-(this.gunOut ? 12 : this.patT > 0 ? 7 : showing ? 5 : 3) * 0.016));
+      this.fisher.root.rotation.y = this.fisherYaw;
+    } else if (this.rideWith) {
+      // A passenger faces the bow, unless there's something to turn round for.
+      const v = this.vessel;
+      const friend = this.cheersT > 0 ? this.nearestFriend() : null;
+      const aimYaw = this.patT > 0 ? 0 : friend ? Math.atan2(-(friend.at.x - v.x), -(friend.at.z - v.z)) - v.heading : showing || this.gunOut ? Math.atan2(-this.aimDir().x, -this.aimDir().z) - v.heading : 0;
       this.fisherYaw += wrapAngle(aimYaw - this.fisherYaw) * (1 - Math.exp(-(this.gunOut ? 12 : this.patT > 0 ? 7 : showing ? 5 : 3) * 0.016));
       this.fisher.root.rotation.y = this.fisherYaw;
     } else if (showing) {
@@ -2015,6 +2219,7 @@ export class Game {
       }),
       place: (x: number, z: number, facing?: number) => {
         this.mode = 'walk';
+        if (this.rideWith) this.endRide(null);
         if (this.inBoat) {
           this.inBoat = false;
           this.boat.moored = true;
