@@ -39,8 +39,11 @@ export class Fishing {
   private lureTo = new THREE.Vector3();
   private flightT = 0;
   private flightDur = 1;
-  private waitT = 0;
-  private nibbleT = 0;
+  /** Seconds until a bite, and until the next nibble. The fish in the water set these when one is coming. */
+  waitT = 0;
+  nibbleT = 0;
+  /** The fish already on its way to the bobber, which is the one that will bite. */
+  preset: Species | null = null;
   private biteT = 0;
   private dip = 0;
   private dipV = 0;
@@ -117,6 +120,7 @@ export class Fishing {
 
   reelIn() {
     this.state = 'idle';
+    this.preset = null;
     this.bobber.visible = false;
     this.line.visible = false;
     this.clearModel();
@@ -160,7 +164,8 @@ export class Fishing {
         if (this.waitT <= 0) {
           this.state = 'bite';
           this.biteT = 9;
-          this.species = pickCatch(zoneAt(this.lure.x, this.lure.z, hour), hour, this.rnd, this.seen);
+          this.species = this.preset ?? pickCatch(zoneAt(this.lure.x, this.lure.z, hour), hour, this.rnd, this.seen);
+          this.preset = null;
           this.dipV = -3.4;
           this.splashAt(water, audio, 0.4);
           audio.bite();

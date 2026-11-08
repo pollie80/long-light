@@ -28,6 +28,12 @@ const mode = async () => (await s()).mode;
 
 await wait(1500);
 check('title screen shows', (await mode()) === 'title');
+await page.keyboard.press('KeyM');
+await wait(500);
+check('M on the title opens the places, not the game', await page.evaluate(() => __ll.game.ui.placesOpen && __ll.game.mode === 'title'));
+await page.keyboard.press('KeyM');
+await wait(400);
+check('and M closes them again', await page.evaluate(() => !__ll.game.ui.placesOpen && __ll.game.mode === 'title'));
 await page.keyboard.press('KeyX');
 await wait(5200);
 check('any key starts the walk', (await mode()) === 'walk');
@@ -398,9 +404,39 @@ await shot('10-flight');
 await wait(2000);
 check('lure lands and waits', (await s()).fish === 'wait');
 await shot('11-waiting');
+check('fish can be seen around the boat', await page.evaluate(() => __ll.game.swimmers.count >= 3), String(await page.evaluate(() => __ll.game.swimmers.count)));
+const coming = await page.evaluate(async () => {
+  const g = __ll.game;
+  const sw = g.swimmers;
+  const gap = () => (sw.approacher ? Math.hypot(sw.approacher.x - g.fishing.lure.x, sw.approacher.z - g.fishing.lure.z) : -1);
+  // Wait for one to be sent in, however long the wait was going to be.
+  for (let i = 0; i < 80 && !sw.approacher; i++) await new Promise((f) => setTimeout(f, 250));
+  const a = gap();
+  await new Promise((f) => setTimeout(f, 1500));
+  const b = gap();
+  return { a, b, id: sw.approacher?.catch.id ?? '', preset: g.fishing.preset?.id ?? '' };
+});
+check('a fish you can see swims to the bobber', coming.a > 0 && coming.b < coming.a && coming.id === coming.preset, JSON.stringify(coming));
+await page.evaluate(() => {
+  const g = __ll.game;
+  const l = g.fishing.lure;
+  g.yaw = Math.atan2(-(l.x - g.boat.x), -(l.z - g.boat.z));
+  g.pitch = 0.42;
+});
+await wait(700);
+await shot('11b-fish-coming');
+const fishPx = await page.evaluate(() => {
+  const g = __ll.game;
+  const a = g.swimmers.approacher;
+  if (!a) return null;
+  const p = a.model.position.clone().project(g.camera);
+  return { x: (p.x * 0.5 + 0.5) * innerWidth, y: (-p.y * 0.5 + 0.5) * innerHeight };
+});
+fs.writeFileSync(path.join(outDir, 'fish-px.json'), JSON.stringify(fishPx));
 await page.evaluate(() => { __ll.game.fishing.waitT = 0.05; });
 await wait(700);
 check('a fish bites', (await s()).fish === 'bite');
+check('and it is the one that came', (await page.evaluate(() => __ll.game.fishing.species?.id)) === coming.id, await page.evaluate(() => __ll.game.fishing.species?.id));
 await shot('12-bite');
 await page.keyboard.press('Space');
 await wait(300);
@@ -567,6 +603,27 @@ const coverage = await page.evaluate(() => {
   return g.fishing ? true : false;
 });
 check('fishing system alive at end', coverage);
+
+// F and M open their pages in play, and close them again.
+await page.evaluate(() => { __ll.game.closeMenus(); });
+await wait(300);
+await page.keyboard.press('KeyF');
+await wait(400);
+const fOpen = await page.evaluate(() => __ll.game.ui.friendsOpen);
+await page.keyboard.press('KeyF');
+await wait(400);
+check('F opens and closes Friends', fOpen && (await page.evaluate(() => !__ll.game.ui.friendsOpen)));
+await page.keyboard.press('KeyM');
+await wait(400);
+const mOpen = await page.evaluate(() => __ll.game.ui.placesOpen);
+await page.keyboard.press('Escape');
+await wait(400);
+check('M opens the places', mOpen && (await page.evaluate(() => !__ll.game.ui.placesOpen)));
+await page.evaluate(() => __ll.game.openMenu());
+await wait(300);
+await shot('menu-keys');
+await page.evaluate(() => __ll.game.closeMenus());
+await wait(300);
 
 // Resetting the journal asks first, then empties it.
 await page.evaluate(() => { __ll.game.closeMenus(); });

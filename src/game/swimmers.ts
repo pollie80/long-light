@@ -1,0 +1,225 @@
+// Fish you can see before you cast: a few real catches cruising just under the surface around you. Cast
+// near one and you'll watch it come to the bobber; cast anywhere else and one swims in from out of sight, so
+// every bite is a fish you saw arrive. Each player has their own.
+import * as THREE from 'three';
+import { mulberry32 } from '../core/noise';
+import { Q } from '../core/quality';
+import { JETTY, groundY } from '../world/land';
+import type { Water } from '../world/water';
+import { fishModel } from './fishart';
+import { pickCatch, Species } from './fishdata';
+import { Fishing, zoneAt } from './fishing';
+
+interface Swimmer {
+  catch: Species;
+  model: THREE.Group;
+  x: number;
+  z: number;
+  y: number;
+  heading: number;
+  speed: number;
+  tx: number;
+  tz: number;
+  mode: 'wander' | 'approach' | 'nibble' | 'flee';
+  phase: number;
+  ripple: number;
+  /** 0 to 1 coming in, back to 0 going out. */
+  show: number;
+  /** Small fish are drawn a little larger, or nobody would ever spot a smelt. */
+  vis: number;
+  wake: number;
+  gone: boolean;
+}
+
+const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+const SWIM_IN = 1.5;
+
+export class Swimmers {
+  group = new THREE.Group();
+  /** The one coming to the bobber now, if any. */
+  approacher: Swimmer | null = null;
+  private fish: Swimmer[] = [];
+  private rnd = mulberry32(31337);
+  private lastState = 'idle';
+  private want = Q.id === 'low' ? 3 : 5;
+
+  constructor(private seen: (id: string) => boolean) {}
+
+  get count(): number {
+    return this.fish.filter((f) => !f.gone && f.mode !== 'flee').length;
+  }
+
+  private spawn(x: number, z: number, hour: number): Swimmer | null {
+    if (groundY(x, z) > -0.9) return null;
+    if (x < JETTY.startX + 4 && x > JETTY.endX - 4 && Math.abs(z) < 5) return null;
+    const sp = pickCatch(zoneAt(x, z, hour), hour, this.rnd, this.seen);
+    const model = fishModel(sp);
+    model.scale.setScalar(0.001);
+    this.group.add(model);
+    const s: Swimmer = {
+      catch: sp, model, x, z,
+      y: -0.2 - Math.min(0.25, sp.length * 0.2),
+      heading: this.rnd() * Math.PI * 2,
+      speed: 0.6, tx: x, tz: z, mode: 'wander', phase: this.rnd() * 6, ripple: this.rnd() * 3, show: 0, gone: false, vis: Math.max(1, 0.6 / sp.length), wake: 0,
+    };
+    this.fish.push(s);
+    return s;
+  }
+
+  private drop(s: Swimmer) {
+    this.group.remove(s.model);
+    s.model.traverse((m) => (m as THREE.Mesh).geometry?.dispose());
+    s.gone = true;
+  }
+
+  private newTarget(s: Swimmer) {
+    const a = this.rnd() * Math.PI * 2;
+    const r = 3 + this.rnd() * 6;
+    const x = s.x + Math.cos(a) * r;
+    const z = s.z + Math.sin(a) * r;
+    if (groundY(x, z) < -0.9) {
+      s.tx = x;
+      s.tz = z;
+    }
+  }
+
+  update(dt: number, t: number, center: THREE.Vector3, hour: number, water: Water, fishing: Fishing) {
+    // Keep a few in view, somewhere you could reach with a cast.
+    if (this.count < this.want) {
+      const a = this.rnd() * Math.PI * 2;
+      const r = 8 + this.rnd() * 22;
+      this.spawn(center.x + Math.cos(a) * r, center.z + Math.sin(a) * r, hour);
+    }
+    this.handleBobber(fishing, hour);
+    for (const s of this.fish) {
+      if (s.gone) continue;
+      const lure = fishing.lure;
+      let tx = s.tx;
+      let tz = s.tz;
+      let want = 0.55;
+      if (s.mode === 'approach' || s.mode === 'nibble') {
+        // Comes in, slows, and noses about just under the bobber.
+        const circle = s.mode === 'nibble' ? 0.25 : 0;
+        tx = lure.x + Math.cos(t * 1.6 + s.phase) * circle;
+        tz = lure.z + Math.sin(t * 1.6 + s.phase) * circle;
+        const d = Math.hypot(tx - s.x, tz - s.z);
+        want = s.mode === 'nibble' ? 0.3 : Math.min(SWIM_IN, 0.4 + d * 0.6);
+        if (s.mode === 'approach' && d < 0.35) s.mode = 'nibble';
+      } else if (s.mode === 'flee') {
+        want = 2.6;
+      } else if (Math.hypot(tx - s.x, tz - s.z) < 0.8) {
+        this.newTarget(s);
+      }
+      const dx = tx - s.x;
+      const dz = tz - s.z;
+      if (s.mode !== 'flee' && Math.hypot(dx, dz) > 0.05) {
+        s.heading += wrap(Math.atan2(-dx, -dz) - s.heading) * (1 - Math.exp(-dt * (s.mode === 'wander' ? 1.5 : 4)));
+      }
+      s.speed += (want - s.speed) * (1 - Math.exp(-dt * 2));
+      const nx = s.x - Math.sin(s.heading) * s.speed * dt;
+      const nz = s.z - Math.cos(s.heading) * s.speed * dt;
+      if (groundY(nx, nz) < -0.6 || s.mode !== 'wander') {
+        s.x = nx;
+        s.z = nz;
+      } else {
+        this.newTarget(s);
+        s.heading += Math.PI * 0.6;
+      }
+      const far = Math.hypot(s.x - center.x, s.z - center.z);
+      const leaving = s.mode === 'flee' || far > 48;
+      s.show = Math.max(0, Math.min(1, s.show + (leaving ? -dt * 0.8 : dt * 0.6)));
+      if (leaving && s.show <= 0) {
+        if (this.approacher === s) this.approacher = null;
+        this.drop(s);
+        continue;
+      }
+      const wiggle = Math.sin(t * (4 + s.speed * 6) + s.phase) * (0.12 + s.speed * 0.12);
+      // Now and then one comes up until its back breaks the surface; one heading for the bobber stays up there.
+      const rise = s.mode === 'wander' ? Math.pow(Math.max(0, Math.sin(t * 0.42 + s.phase * 3)), 6) : 1;
+      // Its back just out of the water, so it shows whatever the light is doing to the surface.
+      const top = s.mode === 'approach' ? -0.015 : -0.04;
+      const y = s.y * (1 - rise) + top * rise;
+      s.model.position.set(s.x, y + Math.sin(t * 0.7 + s.phase) * 0.02, s.z);
+      s.model.rotation.set(0, s.heading + wiggle, 0);
+      s.model.scale.setScalar(Math.max(0.001, s.show * s.vis));
+      // A fish heading in leaves a little V on the water behind it.
+      if (s.mode === 'approach') {
+        s.wake -= dt;
+        if (s.wake <= 0) {
+          s.wake = 0.16;
+          water.splash(s.x, s.z, 0.3, 0.04);
+        }
+      }
+      // A ring on the surface now and then gives each one away, more often when it's busy.
+      s.ripple -= dt;
+      if (s.ripple <= 0) {
+        s.ripple = s.mode === 'wander' ? (rise > 0.5 ? 0.5 : 1.8 + this.rnd() * 2) : 0.7;
+        water.splash(s.x, s.z, 0.36, s.mode === 'wander' ? (rise > 0.5 ? 0.03 : 0.016) : 0.03);
+      }
+    }
+    this.fish = this.fish.filter((s) => !s.gone);
+  }
+
+  /** Ties what's in the water to what bites. */
+  private handleBobber(f: Fishing, hour: number) {
+    const state = f.state;
+    const settled = state === 'wait' && this.lastState !== 'wait';
+    const lure = f.lure;
+    if (settled && !this.approacher) {
+      // Anything close enough notices the bobber land.
+      let best: Swimmer | null = null;
+      let bd = 11;
+      for (const s of this.fish) {
+        if (s.gone || s.mode !== 'wander') continue;
+        const d = Math.hypot(s.x - lure.x, s.z - lure.z);
+        if (d < bd) {
+          bd = d;
+          best = s;
+        }
+      }
+      if (best) this.sendIn(best, f);
+    }
+    // Nothing nearby: one comes in from out of sight, in time to take it.
+    if (state === 'wait' && !this.approacher && f.waitT < 4.2) {
+      // Starts as far out as it can and still arrive on time, so the bite comes when it was going to.
+      const dist = Math.max(1.2, Math.min(6.5, (f.waitT - 0.6) * SWIM_IN * 0.85));
+      for (let i = 0; i < 10 && !this.approacher; i++) {
+        const a = this.rnd() * Math.PI * 2;
+        const s = this.spawn(lure.x + Math.cos(a) * dist, lure.z + Math.sin(a) * dist, hour);
+        if (s) {
+          s.show = 0.4;
+          this.sendIn(s, f, false);
+        }
+      }
+    }
+    // Hooked: the fish on the line takes over from the one in the water.
+    if (state === 'reel' && this.approacher) {
+      this.drop(this.approacher);
+      this.approacher = null;
+    }
+    // Got away, or reeled in empty: it leaves.
+    if (this.approacher && (state === 'idle' || (state === 'wait' && this.lastState === 'bite'))) {
+      this.approacher.mode = 'flee';
+      this.approacher.heading += Math.PI;
+      this.approacher = null;
+      f.preset = null;
+    }
+    // A bite before it got there: it was closer than it looked.
+    if (state === 'bite' && this.lastState !== 'bite' && this.approacher) {
+      this.approacher.x = lure.x;
+      this.approacher.z = lure.z;
+      this.approacher.mode = 'nibble';
+    }
+    this.lastState = state;
+  }
+
+  private sendIn(s: Swimmer, f: Fishing, setWait = true) {
+    s.mode = 'approach';
+    this.approacher = s;
+    f.preset = s.catch;
+    const d = Math.hypot(s.x - f.lure.x, s.z - f.lure.z);
+    // Arrive, look it over, then take it.
+    if (setWait) f.waitT = d / (SWIM_IN * 0.85) + 1.2 + this.rnd() * 1.5;
+    f.nibbleT = Math.max(0.2, f.waitT - 0.6);
+  }
+}

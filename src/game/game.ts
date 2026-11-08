@@ -23,6 +23,7 @@ import { Journal, UI } from '../ui/ui';
 import { clamp, damp, smoothstep } from '../core/noise';
 import { Pet } from '../actors/pet';
 import { Hunt } from './hunt';
+import { Swimmers } from './swimmers';
 import { Fireworks } from '../world/fireworks';
 import { Q, setQuality } from '../core/quality';
 import { MAP, MapId, MAPS, switchMap } from '../world/maps';
@@ -103,6 +104,7 @@ export class Game {
   hunt!: Hunt;
   gunOut = false;
   fireworks!: Fireworks;
+  swimmers!: Swimmers;
   /** Seconds left of each: a pat under way, and a bottle held up for a cheers. */
   patT = 0;
   patK = 0;
@@ -204,6 +206,7 @@ export class Game {
       resume: () => this.closeMenus(),
       journal: () => {
         this.ui.showMenu(false);
+        this.ui.showTitle(false);
         this.audio.pageTurn();
         this.ui.journalOpenAt(this.hour);
       this.ui.showJournal(true, this.save.journal, this.input.usingPad ? '<kbd>Circle</kbd>' : '<kbd>J</kbd> or <kbd>Esc</kbd>');
@@ -794,6 +797,8 @@ export class Game {
     this.fishing = new Fishing(this.scene, this.lineMat);
     this.pipe.late.add(this.fishing.line);
     this.fishing.seen = (id) => !!this.save.journal[id];
+    this.swimmers = new Swimmers((id) => !!this.save.journal[id]);
+    this.scene.add(this.swimmers.group);
     this.fishing.onBite = () => {
       this.ui.prompt(this.input.usingPad ? 'a bite! <kbd>Cross</kbd>' : 'a bite! <kbd>Space</kbd>');
     };
@@ -1664,7 +1669,7 @@ export class Game {
         if (this.gunOut) this.ui.sights(this.rounds);
       }
     }
-    if (this.gunOut && !menu && this.canHoldGun && !this.wasMenu && (inp.was('Mouse') || inp.was('PadR2') || inp.was('KeyF'))) this.fireGun();
+    if (this.gunOut && !menu && this.canHoldGun && !this.wasMenu && (inp.was('Mouse') || inp.was('PadR2'))) this.fireGun();
     if (this.gunOut && !this.canHoldGun) {
       this.gunOut = false;
       this.ui.sights(null);
@@ -1965,7 +1970,13 @@ export class Game {
     if (this.mode === 'title') {
       this.titleCamera(t);
       // Any key or a click on the picture starts the game, unless a panel or an invite is up.
-      if (inp.anyPress && !warm && !menu && !this.ui.joining) this.startPlay();
+      // The same key shuts the page it opened.
+      if (menu && ((inp.was('KeyM') && this.ui.placesOpen) || (inp.was('KeyF') && this.ui.friendsOpen) || (inp.was('KeyJ') && this.ui.journalOpen))) this.closeMenus();
+      const page = !menu && !warm ? (inp.was('KeyJ') ? 'journal' : inp.was('KeyF') ? 'friends' : inp.was('KeyM') ? 'places' : null) : null;
+      if (page === 'journal') this.ui.hooks.journal();
+      else if (page === 'friends') this.openFriends();
+      else if (page === 'places') this.ui.hooks.places();
+      else if (inp.anyPress && !warm && !menu && !this.ui.joining) this.startPlay();
       if (menu && (inp.was('Escape') || inp.was('PadCircle'))) {
         this.closeMenus();
         this.renderFriends();
@@ -2016,6 +2027,14 @@ export class Game {
 
     // Keyboard odds and ends.
     if (!warm && this.mode !== 'title') {
+      if (inp.was('KeyF') && !this.ui.wardrobe.open) {
+        if (this.ui.friendsOpen) this.closeMenus();
+        else if (!this.anyMenuOpen() || this.ui.menuOpen) this.openFriends();
+      }
+      if (inp.was('KeyM') && !this.ui.wardrobe.open) {
+        if (this.ui.placesOpen) this.closeMenus();
+        else if (!this.anyMenuOpen() || this.ui.menuOpen) this.ui.hooks.places();
+      }
       if (inp.was('KeyJ')) {
         if (this.ui.journalOpen) this.closeMenus();
         else if (!this.ui.menuOpen) {
@@ -2052,6 +2071,7 @@ export class Game {
     if (!warm && this.mode !== 'title') this.updateGun(dt, menu);
     if (!warm) this.updateSocial(dt, menu);
     if (!warm) this.fireworks.update(dt, this.camera, this.pipe.h);
+    if (!warm && this.mode !== 'title') this.swimmers.update(dt, t, this.fisher.root.getWorldPosition(this.seatTmp), this.hour, this.water, this.fishing);
     if (!warm) this.hunt.update(dt, t, this.fisher.root.getWorldPosition(this.petTmp2), this.water);
     const pose = this.buildPose();
     this.lastPose = pose;

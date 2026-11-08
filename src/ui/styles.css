@@ -141,6 +141,8 @@ kbd { font-family: var(--serif); font-style: normal; font-weight: 500; font-size
 .tile:hover, .tile.focus { background: #9c3f24; color: var(--light); border-color: #9c3f24; transform: translateY(-1px); }
 .tile.primary { background: #9c3f24; color: var(--light); border-color: #9c3f24; }
 .tile.primary:hover, .tile.primary.focus { background: #b64c2c; }
+/* The key for a page, shown on its button so it can be learned without a list. */
+.tile .tkey { position: absolute; top: 5px; left: 7px; font-size: 12px; padding: 0 4px; line-height: 16px; opacity: 0.62; border-color: currentColor; background: none; }
 .tile i { position: absolute; top: 6px; right: 10px; min-width: 21px; height: 21px; border-radius: 11px; background: #2f7d80; color: #fff; font: 500 15px/21px var(--serif); text-align: center; font-style: normal; }
 #menu h4, #friends h4 { font-weight: 500; font-size: 15px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--ink-soft); margin: 11px 0 2px; }
 .set { display: grid; grid-template-columns: 26px 1fr 40% 56px; align-items: center; gap: 8px; min-height: 36px; font-size: 19.5px; color: var(--ink); border-radius: 6px; padding: 0 5px; }

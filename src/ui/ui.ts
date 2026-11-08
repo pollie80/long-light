@@ -118,7 +118,7 @@ export class UI {
   private resetTimer = 0;
   wardrobe!: Wardrobe;
 
-  constructor(private hooks: MenuHooks, wardrobeHooks: WardrobeHooks) {
+  constructor(readonly hooks: MenuHooks, wardrobeHooks: WardrobeHooks) {
     this.root.innerHTML = /* html */ `
       <div id="title" class="fade hidden">
         <h1>Long Light</h1>
@@ -216,9 +216,9 @@ export class UI {
       <div id="menu" class="paper hidden">
         <div class="tiles">
           <button class="tile primary" id="mResume">${ICON.play}<span>Resume</span></button>
-          <button class="tile" id="mJournal">${ICON.book}<span>Journal</span></button>
-          <button class="tile" id="mInvite">${ICON.people}<span>Friends</span><i id="mCount" class="gone"></i></button>
-          <button class="tile" id="mPlace">${ICON.map}<span>Place</span></button>
+          <button class="tile" id="mJournal">${ICON.book}<span>Journal</span><kbd class="tkey">J</kbd></button>
+          <button class="tile" id="mInvite">${ICON.people}<span>Friends</span><i id="mCount" class="gone"></i><kbd class="tkey">F</kbd></button>
+          <button class="tile" id="mPlace">${ICON.map}<span>Place</span><kbd class="tkey">M</kbd></button>
           <button class="tile" id="mLook">${ICON.hat}<span>Your look</span></button>
           <button class="tile" id="mBoat">${ICON.boat}<span>Your boat</span></button>
           <button class="tile" id="mPet">${ICON.paw}<span>Your pet</span></button>
@@ -265,6 +265,8 @@ export class UI {
           <div class="keyRow"><span><kbd>Click</kbd> with it out</span>Fire</div>
           <h4>Other</h4>
           <div class="keyRow"><span><kbd>J</kbd></span>Journal</div>
+          <div class="keyRow"><span><kbd>F</kbd></span>Friends</div>
+          <div class="keyRow"><span><kbd>M</kbd></span>Choose a place</div>
           <div class="keyRow"><span><kbd>T</kbd> hold</span>Bring the sun along</div>
           <div class="keyRow"><span><kbd>H</kbd></span>Hide the words</div>
           <div class="keyRow"><span><kbd>Esc</kbd></span>This menu</div>
