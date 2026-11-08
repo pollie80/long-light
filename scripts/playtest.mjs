@@ -568,6 +568,22 @@ const coverage = await page.evaluate(() => {
 });
 check('fishing system alive at end', coverage);
 
+// Resetting the journal asks first, then empties it.
+await page.evaluate(() => { __ll.game.closeMenus(); });
+await wait(300);
+const metBefore = await page.evaluate(() => Object.keys(__ll.game.save.journal).length);
+await page.keyboard.press('KeyJ');
+await wait(600);
+await page.locator('#jReset').click();
+await wait(200);
+const asks = await page.locator('#jResetT').textContent();
+check('reset asks before erasing', /again/i.test(asks) && (await page.evaluate(() => Object.keys(__ll.game.save.journal).length)) === metBefore, asks);
+await shot('journal-reset-asks');
+await page.locator('#jReset').click();
+await wait(400);
+const after = await page.evaluate(() => ({ kept: Object.keys(__ll.game.save.journal).length, saved: Object.keys(JSON.parse(localStorage.getItem('longlight.save.v1')).journal).length, count: document.getElementById('jCount').textContent }));
+check('a second press empties the journal and saves it', metBefore > 0 && after.kept === 0 && after.saved === 0 && after.count.startsWith('0 of'), JSON.stringify(after));
+
 console.log(results.join('\n'));
 if (errors.length) console.log('ERRORS:\n' + [...new Set(errors)].join('\n---\n'));
 else console.log('no console errors');

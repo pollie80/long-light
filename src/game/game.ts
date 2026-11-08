@@ -208,6 +208,13 @@ export class Game {
         this.ui.journalOpenAt(this.hour);
       this.ui.showJournal(true, this.save.journal, this.input.usingPad ? '<kbd>Circle</kbd>' : '<kbd>J</kbd> or <kbd>Esc</kbd>');
       },
+      resetJournal: () => {
+        this.save.journal = {};
+        this.writeSave();
+        this.audio.pageTurn();
+        this.ui.showJournal(true, this.save.journal, '');
+        this.ui.toast('The journal is blank again.', 3);
+      },
       quit: () => window.close(),
       savePainting: () => {
         this.wantShot = true;

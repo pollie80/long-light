@@ -32,6 +32,7 @@ export type Journal = Record<string, JournalEntry>;
 export interface MenuHooks {
   resume(): void;
   journal(): void;
+  resetJournal(): void;
   quit(): void;
   savePainting(): void;
   setHour(h: number): void;
@@ -113,6 +114,8 @@ export class UI {
   private jPlace: MapId = MAP.id;
   private jBand: BandId = 'any';
   private jData: Journal | null = null;
+  private resetArmed = false;
+  private resetTimer = 0;
   wardrobe!: Wardrobe;
 
   constructor(private hooks: MenuHooks, wardrobeHooks: WardrobeHooks) {
@@ -168,7 +171,7 @@ export class UI {
         <nav id="jPlaces" aria-label="Place"></nav>
         <nav id="jBands" aria-label="Time of day"></nav>
         <div id="jgrid"></div>
-        <div id="jfoot"><div id="jDetail"></div><button class="iconBtn" id="jClose">${ICON.close}<span>Close</span></button></div>
+        <div id="jfoot"><div id="jDetail"></div><button class="iconBtn danger" id="jReset" title="Forget every fish caught">${ICON.reset}<span id="jResetT">Reset</span></button><button class="iconBtn" id="jClose">${ICON.close}<span>Close</span></button></div>
       </div>
       <div id="rest" class="paper hidden">
         <h3>${ICON.bed} Rest until</h3>
@@ -594,6 +597,30 @@ export class UI {
       this.jData = j;
       this.fillJournal(j);
       el('jClose').onclick = () => this.hooks.resume();
+      // Two presses, because this can't be undone: the first only asks.
+      this.resetArmed = false;
+      el('jReset').classList.remove('armed');
+      el('jResetT').textContent = 'Reset';
+      el('jReset').onclick = () => {
+        if (!this.resetArmed) {
+          this.resetArmed = true;
+          el('jReset').classList.add('armed');
+          el('jResetT').textContent = 'Erase every fish? Press again';
+          window.clearTimeout(this.resetTimer);
+          this.resetTimer = window.setTimeout(() => {
+            this.resetArmed = false;
+            el('jReset').classList.remove('armed');
+            el('jResetT').textContent = 'Reset';
+          }, 4000);
+          this.hooks.sound('tick');
+          return;
+        }
+        window.clearTimeout(this.resetTimer);
+        this.resetArmed = false;
+        el('jReset').classList.remove('armed');
+        el('jResetT').textContent = 'Reset';
+        this.hooks.resetJournal();
+      };
       void closeKey;
     }
     el('journal').classList.toggle('hidden', !v);

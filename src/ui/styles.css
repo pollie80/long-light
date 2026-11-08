@@ -98,6 +98,10 @@ kbd { font-family: var(--serif); font-style: normal; font-weight: 500; font-size
 .jslot canvas { width: 100%; height: auto; max-height: 64%; object-fit: contain; }
 .jslot b { font-weight: 500; font-size: clamp(15px, 2.1vh, 21px); line-height: 1.05; margin-top: 2px; }
 #jfoot .iconBtn { flex: none; align-self: flex-start; }
+/* Kept apart from Close, and quiet until it has been pressed once. */
+#jfoot .iconBtn.danger { color: var(--ink-soft); margin-left: auto; margin-right: 18px; }
+#jfoot .iconBtn.danger:hover { color: #a02a1c; background: rgba(160, 42, 28, 0.08); }
+#jfoot .iconBtn.danger.armed { color: #fff6e8; background: #a02a1c; }
 .jslot em { font-family: var(--hand); font-style: normal; font-size: clamp(14px, 1.9vh, 19px); color: var(--ink-soft); line-height: 1; }
 #jfoot { min-height: 62px; border-top: 1px solid rgba(42, 31, 28, 0.25); margin-top: 10px; padding-top: 8px; font-size: 21px; line-height: 1.25; font-style: italic; display: flex; justify-content: space-between; gap: 30px; }
 #jfoot .close { font-style: italic; white-space: nowrap; color: var(--ink-soft); font-size: 19px; }
