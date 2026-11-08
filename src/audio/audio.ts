@@ -609,12 +609,12 @@ export class AudioWorld {
     this.burst(this.noiseWhite, 0.012, 0.024, { type: 'bandpass', f0: 4300, q: 5 });
   }
 
-  /** A shotgun across open water: a hard crack, a low thump, and the hills answering. `near` is 1 for your own. */
+  /** A big pistol across open water: a very hard crack, a short thump, and the hills answering. `near` is 1 for your own. */
   shot(near = 1) {
     if (!this.ctx) return;
     const v = near;
-    this.burst(this.noisePink, 0.09, 0.95 * v, { type: 'highpass', f0: 900 }, {});
-    this.burst(this.noiseBrown, 0.42, 1.25 * v, { type: 'lowpass', f0: 420, f1: 70 }, {});
+    this.burst(this.noisePink, 0.05, 1.2 * v, { type: 'highpass', f0: 1500 }, {});
+    this.burst(this.noiseBrown, 0.22, 1.2 * v, { type: 'lowpass', f0: 620, f1: 90 }, {});
     this.burst(this.noiseBrown, 0.8, 0.22 * v, { type: 'lowpass', f0: 300, f1: 90 }, { delay: 0.34, pan: -0.4 });
     this.burst(this.noiseBrown, 1.1, 0.11 * v, { type: 'lowpass', f0: 220, f1: 80 }, { delay: 0.8, pan: 0.45 });
   }
@@ -648,11 +648,12 @@ export class AudioWorld {
     this.burst(this.noiseBrown, 1.4, 0.14 * v, { type: 'lowpass', f0: 240, f1: 70 }, { delay: delay + 0.8, pan: -pan });
   }
 
-  /** The breech closing on two fresh shells. */
+  /** The empty magazine out, a full one in, the slide let go. */
   reload() {
     if (!this.ctx) return;
     this.burst(this.noisePink, 0.03, 0.2, { type: 'bandpass', f0: 2400, q: 2 }, {});
-    this.burst(this.noisePink, 0.04, 0.26, { type: 'bandpass', f0: 1500, q: 2 }, { delay: 0.75 });
+    this.burst(this.noisePink, 0.03, 0.22, { type: 'bandpass', f0: 1900, q: 2 }, { delay: 0.7 });
+    this.burst(this.noisePink, 0.05, 0.34, { type: 'bandpass', f0: 1300, q: 2 }, { delay: 1.15 });
   }
 
   landed() {

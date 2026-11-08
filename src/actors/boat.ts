@@ -8,6 +8,8 @@ import type { Water } from '../world/water';
 import { CharacterLook, choiceOf, DEFAULT_LOOK } from './look';
 
 const L_HULL = 4.2;
+/** How fast the boat swings round, in radians a second. */
+const TURN_RATE = 1.0;
 /** How wide this hull is, and whether it comes to a point at the stern as well as the bow. */
 let beamK = 1;
 let pointedStern = false;
@@ -514,20 +516,18 @@ export class Boat {
     const pulling = Math.sin(this.oarPhase) > 0;
     const pull = Math.max(0, Math.sin(this.oarPhase));
     let thrust = 0;
-    let yaw = 0;
     if (active) {
       const leftP = clamp(forwardInput + turnInput * 0.55, -1, 1);
       const rightP = clamp(forwardInput - turnInput * 0.55, -1, 1);
       thrust = ((leftP + rightP) * 0.5 * pull) * 1.9 * this.power;
-      yaw = (leftP - rightP) * 0.5 * pull * 0.62;
-      if (Math.abs(forwardInput) < 0.05) yaw *= 1.2;
     }
     this.speed += thrust * dt;
     // Thrust up and water drag down by the same factor scales the top speed by exactly that factor.
     this.speed *= Math.exp(-dt * (0.42 + (Math.abs(this.speed) * 0.1) / this.power));
-    this.turnRate += -yaw * dt * 1.9;
-    this.turnRate *= Math.exp(-dt * 1.5);
-    this.heading += this.turnRate * dt * (0.55 + Math.min(1, Math.abs(this.speed)) * 0.45);
+    // Turns as soon as you ask, whatever the oars are doing, and at the same rate at any speed.
+    const wantTurn = active ? -turnInput * TURN_RATE : 0;
+    this.turnRate += (wantTurn - this.turnRate) * (1 - Math.exp(-dt * 5));
+    this.heading += this.turnRate * dt;
 
     const fwd = this.forward();
     // Small steps, so a fast boat can't jump clean over a jetty or a spit of land.
@@ -577,7 +577,7 @@ export class Boat {
     // At speed the bow rides up, but only so far.
     const planing = clamp(this.speed, -2, 11);
     const targetPitch = Math.atan2(yF - yB, 3) + planing * 0.012 + pull * 0.008;
-    const targetRoll = Math.atan2(yL - yR, 1.2) + this.turnRate * planing * 0.05;
+    const targetRoll = Math.atan2(yL - yR, 1.2) + clamp(this.turnRate * planing * 0.05, -0.16, 0.16);
     this.pitch = damp(this.pitch, targetPitch, 3, dt);
     this.roll = damp(this.roll, targetRoll, 3, dt);
     this.group.position.set(this.x, 0, this.z);

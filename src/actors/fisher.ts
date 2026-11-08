@@ -27,7 +27,7 @@ export interface PoseInput {
   beerOut?: number; // 0 in the basket, 1 in the left hand
   beerLift?: number; // 0 held at the chest, 1 at the mouth
   air?: boolean; // off the ground, jumping
-  gun?: boolean; // shotgun at the shoulder, pointing along rodDir
+  gun?: boolean; // pistol held out in both hands, pointing along rodDir
   recoil?: number; // 1 the instant it fires, falling to 0
   pat?: number; // 0 upright, 1 crouched over the pet with a hand on it
   patAt?: THREE.Vector3; // the top of the pet's head, in world space
@@ -63,7 +63,7 @@ export class Fisher {
   private breath = 0;
   private a = { lean: 0, thigh: 0, shin: 0, seat: 0, dangle: 0, air: 0, land: 0 };
   private wasInAir = false;
-  /** The shotgun: laid along -z from the butt, placed in world space like the rod. */
+  /** The pistol: laid along -z from the grip, placed in world space like the rod. */
   gun = new THREE.Group();
   gunTip = new THREE.Vector3();
   private gunDirSmooth = new THREE.Vector3(0, 0, -1);
@@ -173,10 +173,19 @@ export class Fisher {
     this.rodMesh.frustumCulled = false;
     this.applyLook(look);
     const g = new Builder(61);
-    g.box(0.05, 0.1, 0.34, 0x5a3a24, TRS(0, -0.025, -0.15, 0.1, 0, 0), { jit: 0.08 }, 0.015);
-    g.box(0.05, 0.06, 0.22, 0x5a3a24, TRS(0, -0.005, -0.4), { jit: 0.08 }, 0.012);
-    for (const s of [-1, 1]) g.cyl(0.0125, 0.0135, 0.66, 0x25272c, TRS(s * 0.0135, 0.018, -0.78, Math.PI / 2, 0, 0), {}, 8);
-    g.box(0.042, 0.03, 0.26, 0x6a4a2e, TRS(0, -0.008, -0.66), {}, 0.008);
+    // A big, square, polished semi-automatic: long slide, deep muzzle, chunky grip.
+    const STEEL = 0xa8acb2;
+    g.box(0.042, 0.055, 0.29, STEEL, TRS(0, 0.062, -0.1), { jit: 0.03 }, 0.006);
+    g.box(0.038, 0.012, 0.22, 0x7a7e84, TRS(0, 0.096, -0.11), {}, 0.003);
+    g.box(0.044, 0.062, 0.05, 0x8a8e94, TRS(0, 0.058, -0.235), {}, 0.006);
+    g.cyl(0.0085, 0.0085, 0.006, 0x101012, TRS(0, 0.066, -0.262, Math.PI / 2, 0, 0), {}, 8);
+    g.box(0.04, 0.03, 0.2, 0x4a4c50, TRS(0, 0.018, -0.1), {}, 0.005);
+    g.box(0.038, 0.13, 0.058, 0x1e1e22, TRS(0, -0.052, 0.012, -0.22, 0, 0), { jit: 0.05 }, 0.012);
+    g.add(new THREE.TorusGeometry(0.026, 0.0045, 6, 12), 0x3a3c40, TRS(0, -0.012, -0.056, 0, Math.PI / 2, 0));
+    g.box(0.008, 0.03, 0.008, 0x18181a, TRS(0, -0.01, -0.052, 0.3, 0, 0), {}, 0.002);
+    g.box(0.012, 0.014, 0.012, 0x18181a, TRS(0, 0.098, -0.232), {}, 0.002);
+    g.box(0.03, 0.014, 0.014, 0x18181a, TRS(0, 0.098, 0.03), {}, 0.003);
+    g.box(0.014, 0.02, 0.016, 0x3a3c40, TRS(0, 0.086, 0.052, -0.4, 0, 0), {}, 0.003);
     this.gun.add(solid(g.build(), this.gunMat, false));
     this.gun.visible = false;
   }
@@ -391,21 +400,21 @@ export class Fisher {
     this.gun.visible = !!pose.gun;
     this.rod.visible = !pose.gun;
     if (pose.gun && pose.rodDir) {
-      // Stock in the right shoulder, left hand out along the barrels.
-      this.gunDirSmooth.lerp(pose.rodDir, 1 - Math.exp(-dt * 22)).normalize();
+      // Held out in both hands, at the height of the eyes. It's heavy: the shot throws it well up and back.
+      this.gunDirSmooth.lerp(pose.rodDir, 1 - Math.exp(-dt * 24)).normalize();
       const aim = this.gunDirSmooth;
       const kick = pose.recoil ?? 0;
-      const shoulder = this.shoulderWorld(1, new THREE.Vector3());
-      const butt = new THREE.Vector3().copy(shoulder).addScaledVector(aim, 0.06 - kick * 0.07).addScaledVector(worldUp, -0.04);
-      const grip = new THREE.Vector3().copy(butt).addScaledVector(aim, 0.26).addScaledVector(worldUp, -0.04);
-      const fore = new THREE.Vector3().copy(butt).addScaledVector(aim, 0.62).addScaledVector(worldUp, -0.03);
-      this.reach(1, grip, new THREE.Vector3().copy(right).multiplyScalar(0.8).addScaledVector(worldUp, -0.5));
-      this.reach(0, fore, new THREE.Vector3().copy(right).multiplyScalar(-0.8).addScaledVector(worldUp, -0.6));
-      this.gun.position.copy(butt);
-      // A shot throws the barrels up a little.
-      const up = new THREE.Vector3().copy(aim).addScaledVector(worldUp, kick * 0.12).normalize();
+      const shoulderR = this.shoulderWorld(1, new THREE.Vector3());
+      const shoulderL = this.shoulderWorld(0, new THREE.Vector3());
+      const middle = shoulderR.clone().lerp(shoulderL, 0.42);
+      const grip = middle.addScaledVector(aim, 0.56 - kick * 0.09).addScaledVector(worldUp, 0.05);
+      const cup = grip.clone().addScaledVector(right, -0.035).addScaledVector(worldUp, -0.05).addScaledVector(aim, 0.012);
+      this.reach(1, grip.clone().addScaledVector(worldUp, -0.04), new THREE.Vector3().copy(right).multiplyScalar(0.8).addScaledVector(worldUp, -0.7));
+      this.reach(0, cup, new THREE.Vector3().copy(right).multiplyScalar(-0.8).addScaledVector(worldUp, -0.7));
+      this.gun.position.copy(grip);
+      const up = new THREE.Vector3().copy(aim).addScaledVector(worldUp, kick * 0.42).normalize();
       this.gun.quaternion.setFromUnitVectors(GUN_AXIS, up);
-      this.gunTip.copy(butt).addScaledVector(up, 1.12);
+      this.gunTip.copy(grip).addScaledVector(up, 0.3).addScaledVector(worldUp, 0.066);
     } else if (pose.mode === 'row' && !pose.fishing && pose.handleL && pose.handleR) {
       // The rod stows along the thwart while rowing.
       this.reach(0, pose.handleL, new THREE.Vector3().copy(right).multiplyScalar(-0.8).addScaledVector(worldUp, -0.6));

@@ -19,6 +19,21 @@ export function paintFish(sp: Species, w: number, h: number, silhouette = false)
   c.width = w;
   c.height = h;
   const g = c.getContext('2d')!;
+  // A glowing fish is shown as you'd see it, on dark water.
+  const lit = !silhouette && (sp.neon || sp.pattern === 'glow');
+  if (lit) {
+    g.fillStyle = '#0a0f2c';
+    g.beginPath();
+    g.roundRect(w * 0.01, h * 0.02, w * 0.98, h * 0.96, w * 0.03);
+    g.fill();
+    const halo = g.createRadialGradient(w * 0.47, h * 0.52, 0, w * 0.47, h * 0.52, w * 0.46);
+    halo.addColorStop(0, css(sp.glow ?? sp.side, 0.5));
+    halo.addColorStop(1, css(sp.glow ?? sp.side, 0));
+    g.fillStyle = halo;
+    g.beginPath();
+    g.roundRect(w * 0.01, h * 0.02, w * 0.98, h * 0.96, w * 0.03);
+    g.fill();
+  }
   const rnd = mulberry32(strHash(sp.id));
   const cx = w * 0.47;
   const cy = h * 0.52;
@@ -182,6 +197,20 @@ export function paintFish(sp: Species, w: number, h: number, silhouette = false)
     gr.addColorStop(0, css(acc, 0.95));
     gr.addColorStop(1, css(acc, 0));
     g.fillStyle = gr;
+    g.fillRect(0, 0, w, h);
+  }
+  if (sp.neon) {
+    // A line of light down the flank, and the head lit up.
+    const line = g.createLinearGradient(0, cy - H * 0.2, 0, cy + H * 0.2);
+    line.addColorStop(0, css(0xffffff, 0));
+    line.addColorStop(0.5, css(0xffffff, 0.85));
+    line.addColorStop(1, css(0xffffff, 0));
+    g.fillStyle = line;
+    g.fillRect(0, cy - H * 0.2, w, H * 0.4);
+    const head = g.createRadialGradient(cx + L * 0.3, cy - H * 0.1, 0, cx + L * 0.3, cy - H * 0.1, L * 0.24);
+    head.addColorStop(0, css(0xffffff, 0.8));
+    head.addColorStop(1, css(0xffffff, 0));
+    g.fillStyle = head;
     g.fillRect(0, 0, w, h);
   }
 

@@ -5,7 +5,7 @@ import { Builder, solid, TRS } from '../world/builder';
 import { paintedMaterial } from '../render/shared';
 import { damp, mulberry32 } from '../core/noise';
 import { nightMagic } from '../core/time';
-import { pickSpecies, Species, Zone } from './fishdata';
+import { pickCatch, Species, Zone } from './fishdata';
 import { fishModel } from './fishart';
 import type { Water } from '../world/water';
 import type { AudioWorld } from '../audio/audio';
@@ -160,7 +160,7 @@ export class Fishing {
         if (this.waitT <= 0) {
           this.state = 'bite';
           this.biteT = 9;
-          this.species = pickSpecies(zoneAt(this.lure.x, this.lure.z, hour), hour, this.rnd, this.seen);
+          this.species = pickCatch(zoneAt(this.lure.x, this.lure.z, hour), hour, this.rnd, this.seen);
           this.dipV = -3.4;
           this.splashAt(water, audio, 0.4);
           audio.bite();

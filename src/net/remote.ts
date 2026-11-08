@@ -6,7 +6,7 @@ import { Fisher, PoseInput } from '../actors/fisher';
 import { CharacterLook } from '../actors/look';
 import { damp } from '../core/noise';
 import { fishModel } from '../game/fishart';
-import { SPECIES } from '../game/fishdata';
+import { neonOf, SPECIES } from '../game/fishdata';
 import { makeBobber } from '../game/fishing';
 import { swellAt } from '../world/land';
 import type { Water } from '../world/water';
@@ -216,12 +216,13 @@ export class RemotePlayer {
     }
 
     const wantFish = (s.fs === 'reel' || s.fs === 'landed' || s.fs === 'released') && !!s.fish;
-    if (wantFish && this.modelId !== s.fish) {
+    const wantId = s.fn ? `${s.fish}~` : s.fish;
+    if (wantFish && this.modelId !== wantId) {
       this.dropModel();
       const sp = SPECIES.find((x) => x.id === s.fish);
       if (sp) {
-        this.model = fishModel(sp);
-        this.modelId = s.fish;
+        this.model = fishModel(s.fn ? neonOf(sp) : sp);
+        this.modelId = wantId;
         this.scene.add(this.model);
       }
     }

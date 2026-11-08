@@ -29,6 +29,7 @@ export interface Species {
   fight: number; // seconds of gentle reeling
   glow?: number; // shines by itself when lifted from the water
   maps?: MapId[]; // only found in these places; everywhere if not given
+  neon?: boolean; // this catch came up glowing
 }
 
 const ANY: TimeWindow[] = [[0, 24]];
@@ -41,7 +42,7 @@ const DUSK: TimeWindow = [19, 20.6];
 const NIGHT: TimeWindow = [20.4, 4.9];
 const AWAKE: TimeWindow = [19.8, 5.2];
 
-const ALL_SPECIES: Species[] = [
+export const ALL_SPECIES: Species[] = [
   // El Nido, in Bacuit Bay: Filipino market names where they're the ones people use.
   { id: 'bisugo', name: 'Bisugo', verse: 'Threadfin bream, pink and silver. Goes in the pan with garlic and no fuss.', hint: 'Shallow water, any hour.', zones: ['shallows'], when: ANY, tier: 'common', length: 0.25, depth: 0.32, top: 0xc48a90, side: 0xe8c4c4, belly: 0xf4ecea, fin: 0xd8a040, pattern: 'plain', fight: 3, maps: ['philippines'] },
   { id: 'bangus', name: 'Bangus', verse: 'Milkfish, silver and sure of itself. The whole country has an opinion on how to cook it.', hint: 'Around the jetty, any hour.', zones: ['jetty'], when: ANY, tier: 'common', length: 0.6, depth: 0.24, top: 0x5f7f8c, side: 0xc8d4d8, belly: 0xf0f2f0, fin: 0x6a8a94, pattern: 'plain', fight: 3.2, maps: ['philippines'] },
@@ -55,7 +56,11 @@ const ALL_SPECIES: Species[] = [
   { id: 'tuna', name: 'Yellowfin', verse: 'A very large muscle with a very simple plan.', hint: 'Open water, morning and evening.', zones: ['deep'], when: [MORNING, GOLDEN, SUNSET], tier: 'epic', length: 1.3, depth: 0.26, top: 0x25365e, side: 0xa8b4c0, belly: 0xe8ecf0, fin: 0xeac22e, pattern: 'plain', fight: 8, maps: ['philippines'] },
   { id: 'mameng', name: 'Mameng', verse: 'A humphead wrasse, old as a grandfather and just as unhurried. Let this one go.', hint: 'Reefs in the very early morning.', zones: ['reef'], when: [DAWN], tier: 'legendary', length: 1.6, depth: 0.42, top: 0x2f8a78, side: 0x58b09a, belly: 0xb8d8c8, fin: 0x2a6a70, pattern: 'stripes', accent: 0x9ad8d0, fight: 11, maps: ['philippines'] },
   { id: 'sailfish', name: 'Sailfish', verse: 'Raises its sail, looks at you, and leaves.', hint: 'Open water at sunset, once in a very long while.', zones: ['deep'], when: [SUNSET], tier: 'legendary', length: 2.2, depth: 0.2, top: 0x28407a, side: 0x7a9ac0, belly: 0xe4e8ec, fin: 0x2f62b8, pattern: 'spots', accent: 0x5fb8e8, fight: 10, maps: ['philippines'] },
+  { id: 'flashlight', name: 'Flashlight Fish', verse: 'Carries a patch of living light under each eye, and blinks it at you.', hint: 'Reefs, and where the water wakes, after dark.', zones: ['reef', 'magic'], when: [NIGHT], tier: 'rare', length: 0.12, depth: 0.42, top: 0x101838, side: 0x24305c, belly: 0x5a7ac8, fin: 0x1a2448, pattern: 'glow', accent: 0x8af0ff, glow: 0x6ae8ff, fight: 3, maps: ['philippines'] },
   // Moraine Lake: cold mountain fish of the Alberta Rockies.
+  { id: 'grayling', name: 'Arctic Grayling', verse: 'A great sail of a back fin, spotted in violet, for nobody in particular.', hint: 'Shallow water through the day.', zones: ['shallows', 'reef'], when: [MORNING, DAY], tier: 'uncommon', length: 0.34, depth: 0.26, top: 0x4a5a6a, side: 0x9aa0b8, belly: 0xe4e0e8, fin: 0x7a4a9a, pattern: 'spots', accent: 0x5a3a7a, fight: 3.4, maps: ['canada'] },
+  { id: 'burbot', name: 'Burbot', verse: 'A cod that took a wrong turn and stayed. Only moves at night, and only just.', hint: 'The jetty and deep water, after dark.', zones: ['jetty', 'deep'], when: [DUSK, NIGHT], tier: 'uncommon', length: 0.6, depth: 0.16, top: 0x4a4a2e, side: 0x7a7a4a, belly: 0xd8d4b0, fin: 0x5a5a38, pattern: 'spots', accent: 0x2e2e1c, fight: 4.5, maps: ['canada'] },
+  { id: 'aurora', name: 'Aurora Trout', verse: 'Named for the lights over the lakes it comes from, and easy to see why.', hint: 'Where the water wakes, and deep water, in the small hours.', zones: ['magic', 'deep'], when: [AWAKE], tier: 'rare', length: 0.5, depth: 0.24, top: 0x28406a, side: 0x5ac8c0, belly: 0xc8a0f0, fin: 0x8a6ae0, pattern: 'glow', accent: 0xa0ffd8, glow: 0x5af0c8, fight: 7, maps: ['canada'] },
   { id: 'whitefish', name: 'Mountain Whitefish', verse: 'Small mouth, silver sides, no ambition. Perfectly content.', hint: 'The jetty and open water, any hour.', zones: ['jetty', 'deep'], when: ANY, tier: 'common', length: 0.3, depth: 0.2, top: 0x5e6e70, side: 0xb8c4c4, belly: 0xece8e0, fin: 0x8a9496, pattern: 'plain', fight: 2.8, maps: ['canada'] },
   { id: 'brook', name: 'Brook Trout', verse: 'Pale worms on its back, red spots ringed in blue. Overdressed for a lake this cold.', hint: 'Shallow water, any hour.', zones: ['shallows'], when: ANY, tier: 'common', length: 0.3, depth: 0.24, top: 0x4a5e3a, side: 0x8a9a68, belly: 0xe8a868, fin: 0xd87a3a, pattern: 'spots', accent: 0xd84a3a, fight: 3, maps: ['canada'] },
   { id: 'cutthroat', name: 'Westslope Cutthroat', verse: 'A slash of red under the jaw. The trout that was here first.', hint: 'Around the rocks and islands, any hour.', zones: ['reef'], when: ANY, tier: 'common', length: 0.36, depth: 0.24, top: 0x5a6a42, side: 0xb0a878, belly: 0xece4d0, fin: 0x8a7a50, pattern: 'spots', accent: 0x2a2a2a, fight: 3.4, maps: ['canada'] },
@@ -101,10 +106,13 @@ export function available(zone: Zone, hour: number): Species[] {
 
 /** Weighted pick. Fish you have not met yet are a little keener, so the journal fills up naturally. */
 export function pickSpecies(zone: Zone, hour: number, rnd: () => number, seen: (id: string) => boolean = () => false): Species {
-  const list = available(zone, hour);
-  const pool = list.length ? list : SPECIES.filter((s) => s.id === 'smelt');
+  const h = ((hour % 24) + 24) % 24;
+  const list = available(zone, h);
+  // Where the water is awake, anything out at night may be drawn to it, though what lives there comes first.
+  const drawn = zone === 'magic' ? SPECIES.filter((s) => !s.zones.includes('magic') && s.when.some((w) => inWindow(h, w)) && s.when !== ANY) : [];
+  const pool = list.length + drawn.length ? [...list, ...drawn] : SPECIES.filter((s) => s.id === 'smelt' || s.tier === 'common');
   // A fish you haven't met is a little keener, but not so keen that a legendary one stops being legendary.
-  const weight = (s: Species) => TIER_WEIGHT[s.tier] * (seen(s.id) ? 1 : 1.3);
+  const weight = (s: Species) => TIER_WEIGHT[s.tier] * (seen(s.id) ? 1 : 1.3) * (zone === 'magic' && s.zones.includes('magic') ? 2 : 1);
   const total = pool.reduce((t, s) => t + weight(s), 0);
   let r = rnd() * total;
   for (const s of pool) {
@@ -112,4 +120,75 @@ export function pickSpecies(zone: Zone, hour: number, rnd: () => number, seen: (
     if (r <= 0) return s;
   }
   return pool[pool.length - 1];
+}
+
+/** How likely a fish is to come up glowing: never by day, sometimes at night, nearly always in awake water. */
+export function neonChance(zone: Zone, hour: number): number {
+  if (!inWindow(((hour % 24) + 24) % 24, AWAKE)) return 0;
+  return zone === 'magic' ? 0.9 : 0.3;
+}
+
+const NEON_COLOURS = [0x2ae8d8, 0x4aa8ff, 0x9a6aff, 0xff5ad8, 0x5affa0, 0x38d0ff];
+const neonCache = new Map<string, Species>();
+
+/** The same fish in its night colours, like the schools you can see glowing in the water. */
+export function neonOf(sp: Species): Species {
+  let n = neonCache.get(sp.id);
+  if (!n) {
+    let h = 0;
+    for (let i = 0; i < sp.id.length; i++) h = (h * 31 + sp.id.charCodeAt(i)) >>> 0;
+    const c = NEON_COLOURS[h % NEON_COLOURS.length];
+    const mix = (hex: number, k: number) => {
+      const f = (v: number) => Math.round(v * k);
+      return (f((hex >> 16) & 255) << 16) | (f((hex >> 8) & 255) << 8) | f(hex & 255);
+    };
+    n = { ...sp, neon: true, top: mix(c, 0.32), side: c, belly: 0xf2fbff, fin: c, accent: 0xffffff, glow: c };
+    neonCache.set(sp.id, n);
+  }
+  return n;
+}
+
+/** What comes up on the line: which fish, and whether it's glowing. */
+export function pickCatch(zone: Zone, hour: number, rnd: () => number, seen: (id: string) => boolean = () => false): Species {
+  const sp = pickSpecies(zone, hour, rnd, seen);
+  // Some fish glow whatever the hour or the water.
+  if (sp.pattern === 'glow') return sp;
+  return rnd() < neonChance(zone, hour) ? neonOf(sp) : sp;
+}
+
+/** The parts of the day the journal is divided by. */
+export type BandId = 'any' | 'dawn' | 'day' | 'golden' | 'night' | 'awake';
+export const BANDS: { id: BandId; label: string; from: number; to: number }[] = [
+  { id: 'any', label: 'Any time', from: 0, to: 24 },
+  { id: 'dawn', label: 'Dawn', from: 4.9, to: 7.2 },
+  { id: 'day', label: 'Day', from: 7.2, to: 16.3 },
+  { id: 'golden', label: 'Golden hour', from: 16.3, to: 19.4 },
+  { id: 'night', label: 'Night', from: 19.4, to: 28.9 },
+  { id: 'awake', label: 'Awake water', from: 0, to: 24 },
+];
+
+export function bandAt(hour: number): BandId {
+  const h = ((hour % 24) + 24) % 24;
+  if (h >= 4.9 && h < 7.2) return 'dawn';
+  if (h >= 7.2 && h < 16.3) return 'day';
+  if (h >= 16.3 && h < 19.4) return 'golden';
+  return 'night';
+}
+
+export const placeSpecies = (place: MapId): Species[] => ALL_SPECIES.filter((s) => !s.maps || s.maps.includes(place)).sort((a, b) => TIERS.indexOf(a.tier) - TIERS.indexOf(b.tier));
+
+const isAllDay = (s: Species) => s.when === ANY;
+
+/** The fish of a place that can be found in a part of the day. Fish out at all hours have a page of their own. */
+export function speciesIn(place: MapId, band: BandId): Species[] {
+  const all = placeSpecies(place);
+  if (band === 'awake') return all.filter((s) => s.zones.includes('magic'));
+  const open = all.filter((s) => s.zones.some((z) => z !== 'magic'));
+  if (band === 'any') return open.filter(isAllDay);
+  const b = BANDS.find((x) => x.id === band)!;
+  return open.filter((s) => {
+    if (isAllDay(s)) return false;
+    for (let h = b.from; h < b.to; h += 0.1) if (s.when.some((w) => inWindow(h % 24, w))) return true;
+    return false;
+  });
 }

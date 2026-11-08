@@ -39,6 +39,8 @@ const START = pathPoint(9);
 
 /** Where a passenger's pet sits: on the boards at their feet. */
 const RIDE_PET_OFFSET = new THREE.Vector3(0, 0.36, -0.52);
+/** A Desert Eagle in .50 holds seven. */
+const MAGAZINE = 7;
 const JUMP_SPEED = 4.4;
 const GRAVITY = 12.5;
 /** Where you can cast, a press shorter than this is a jump and a longer one is a cast. */
@@ -109,7 +111,7 @@ export class Game {
   private patTarget = new THREE.Vector3();
   private clinked = new Map<string, number>();
   private patHintBoat = false;
-  private shells = 2;
+  private rounds = MAGAZINE;
   private reloadT = 0;
   private recoil = 0;
   private flashT = 0;
@@ -203,7 +205,8 @@ export class Game {
       journal: () => {
         this.ui.showMenu(false);
         this.audio.pageTurn();
-        this.ui.showJournal(true, this.save.journal, this.input.usingPad ? '<kbd>Circle</kbd>' : '<kbd>J</kbd> or <kbd>Esc</kbd>');
+        this.ui.journalOpenAt(this.hour);
+      this.ui.showJournal(true, this.save.journal, this.input.usingPad ? '<kbd>Circle</kbd>' : '<kbd>J</kbd> or <kbd>Esc</kbd>');
       },
       quit: () => window.close(),
       savePainting: () => {
@@ -543,6 +546,7 @@ export class Game {
       pat: this.patT > 0,
       ch: this.cheersT > 0,
       ride: this.rideWith ?? '',
+      fn: f.species?.neon === true && (f.state === 'reel' || f.state === 'landed' || f.state === 'released'),
       mode: pose.mode,
       sp: r(pose.speed),
       ib: this.inBoat, fy: r(this.fisherYaw),
@@ -793,6 +797,7 @@ export class Game {
       if (first) j[s.id] = { count: 0, firstHour: this.hour };
       j[s.id].count += 1;
       j[s.id].biggest = Math.max(j[s.id].biggest ?? 0, size);
+      if (s.neon) j[s.id].neon = (j[s.id].neon ?? 0) + 1;
       this.writeSave();
       if (first) this.audio.firstOfKind();
       // The rare ones are worth a bit more noise.
@@ -1020,13 +1025,14 @@ export class Game {
       const l = Math.hypot(dx, dz) || 1;
       wx = dx / l;
       wz = dz / l;
-      wish = f * (inp.jog ? 4.2 : 2.5) * this.save.walkSpeed;
+      // Running is the normal pace; Shift (or L3) is for taking it slowly.
+      wish = f * (inp.jog ? 2.5 : 4.2) * this.save.walkSpeed;
     }
     this.speed = damp(this.speed, wish, wish > this.speed ? 3.5 : 5.5, dt);
     if (this.speed > 0.02) {
       if (wish > 0) {
         const targetFacing = Math.atan2(-wx, -wz);
-        this.facing += wrapAngle(targetFacing - this.facing) * (1 - Math.exp(-dt * 7));
+        this.facing += wrapAngle(targetFacing - this.facing) * (1 - Math.exp(-dt * 11));
       }
       const fx = -Math.sin(this.facing);
       const fz = -Math.cos(this.facing);
@@ -1601,7 +1607,7 @@ export class Game {
     if (this.fishing.active || this.beer.active || !this.canHoldGun) return;
     this.gunOut = !this.gunOut;
     this.audio.uiTick();
-    this.ui.sights(this.gunOut ? this.shells : null);
+    this.ui.sights(this.gunOut ? this.rounds : null);
     if (!this.gunOut) {
       // Back to the usual view without a lurch.
       this.pitch = clamp(this.pitch, -0.55, 1.1);
@@ -1612,17 +1618,18 @@ export class Game {
   }
 
   private fireGun() {
-    if (this.shells <= 0) return;
-    this.shells -= 1;
+    if (this.rounds <= 0) return;
+    // The bullet goes where the sights were. The kick comes after.
+    const dir = this.shotDir();
+    const hit = this.hunt.fire(this.camera.position, dir);
+    this.rounds -= 1;
     this.shotsFired += 1;
     this.recoil = 1;
     this.flashT = 0.055;
-    this.pitch -= 0.022;
+    this.pitch -= 0.036;
     this.audio.shot(1);
-    this.ui.sights(this.shells);
-    if (this.shells === 0) this.reloadT = 1.15;
-    const dir = this.shotDir();
-    const hit = this.hunt.fire(this.camera.position, dir);
+    this.ui.sights(this.rounds);
+    if (this.rounds === 0) this.reloadT = 1.7;
     if (hit) {
       this.save.birds[hit.name] = (this.save.birds[hit.name] ?? 0) + hit.count;
       const best = hit.distance > this.save.bestShot;
@@ -1645,9 +1652,9 @@ export class Game {
     if (this.reloadT > 0) {
       this.reloadT -= dt;
       if (this.reloadT <= 0) {
-        this.shells = 2;
+        this.rounds = MAGAZINE;
         this.audio.reload();
-        if (this.gunOut) this.ui.sights(this.shells);
+        if (this.gunOut) this.ui.sights(this.rounds);
       }
     }
     if (this.gunOut && !menu && this.canHoldGun && !this.wasMenu && (inp.was('Mouse') || inp.was('PadR2') || inp.was('KeyF'))) this.fireGun();
@@ -1725,7 +1732,7 @@ export class Game {
     }
     inp.wheel = 0;
 
-    // Sighting along the barrels, just behind the right shoulder.
+    // Sighting along the pistol, just behind the right shoulder.
     if (this.gunOut && this.canHoldGun) {
       this.pitch = clamp(this.pitch, -1.25, 0.55);
       const cp = Math.cos(this.pitch);
@@ -1760,7 +1767,7 @@ export class Game {
       sideOffset = 0.9;
       // Settles in behind the boat on a long turn.
       if (!looked && !this.fishing.active && Math.abs(this.boat.turnRate) > 0.02) {
-        this.yaw += wrapAngle(this.boat.heading - this.yaw) * (1 - Math.exp(-dt * 0.42));
+        this.yaw += wrapAngle(this.boat.heading - this.yaw) * (1 - Math.exp(-dt * 1.5));
       }
     } else if (this.mode === 'sit') {
       focus.set(this.px, this.py + 1.05 * this.fisher.look.height, this.pz);
@@ -1844,8 +1851,8 @@ export class Game {
       if (this.introT >= 1) {
         this.mode = 'walk';
         this.ui.hint(this.input.usingPad
-          ? 'left stick to walk, right stick to look<br><kbd>Triangle</kbd> stroll, <kbd>Square</kbd> use, <kbd>L1</kbd> a beer, <kbd>Options</kbd> menu'
-          : '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to walk, mouse to look<br><kbd>Q</kbd> stroll along the path by itself<br><kbd>Space</kbd> jump, <kbd>E</kbd> use, <kbd>B</kbd> a beer, <kbd>Esc</kbd> menu', 14);
+          ? 'left stick to run, right stick to look<br><kbd>Triangle</kbd> stroll, <kbd>Square</kbd> use, <kbd>L1</kbd> a beer, <kbd>Options</kbd> menu'
+          : '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to run, mouse to look<br><kbd>Q</kbd> stroll along the path by itself<br><kbd>Space</kbd> jump, <kbd>E</kbd> use, <kbd>B</kbd> a beer, <kbd>Esc</kbd> menu', 14);
       }
     } else {
       this.camera.position.copy(pos);
@@ -2007,6 +2014,7 @@ export class Game {
         else if (!this.ui.menuOpen) {
           inp.unlock();
           this.audio.pageTurn();
+          this.ui.journalOpenAt(this.hour);
           this.ui.showJournal(true, this.save.journal, '<kbd>J</kbd> or <kbd>Esc</kbd>');
         }
       }

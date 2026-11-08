@@ -47,6 +47,20 @@ const p2 = await s();
 check('Q strolls by itself', Math.hypot(p2.px - p1.px, p2.pz - p1.pz) > 2.5, `moved ${Math.hypot(p2.px - p1.px, p2.pz - p1.pz).toFixed(1)} m`);
 await page.keyboard.press('KeyQ');
 
+// Running is the normal pace, and Shift walks.
+await page.evaluate(() => { __ll.place(0, 0, 1.57); __ll.game.yaw = 1.57; });
+await wait(300);
+await page.keyboard.down('KeyW');
+await wait(1500);
+const runV = await page.evaluate(() => __ll.game.speed);
+await page.keyboard.down('ShiftLeft');
+await wait(1200);
+const walkV = await page.evaluate(() => __ll.game.speed);
+await page.keyboard.up('ShiftLeft');
+await page.keyboard.up('KeyW');
+check('W runs and Shift walks', runV > 3.8 && walkV < 2.9, `${runV.toFixed(1)} then ${walkV.toFixed(1)} m/s`);
+await wait(500);
+
 // Jumping, and where it gives way to casting.
 const jumpState = () => page.evaluate(() => ({ y: __ll.game.fisher.root.position.y, air: __ll.game.airborne, fish: __ll.game.fishing.state }));
 const j0 = await jumpState();
@@ -147,12 +161,18 @@ const birds0 = await page.evaluate(() => Object.values(__ll.game.save.birds).red
 await shootOne();
 const birds1 = await page.evaluate(() => Object.values(__ll.game.save.birds).reduce((a, b) => a + b, 0));
 check('a shot brings a bird down', birds1 > birds0, `${birds0} then ${birds1}`);
-check('and uses a shell', (await page.evaluate(() => __ll.game.shells)) === 1);
+check('and uses a round', (await page.evaluate(() => __ll.game.rounds)) === 6);
 await shot('gun-fired');
 await shootOne();
-check('two shots empty the gun', (await page.evaluate(() => __ll.game.shells)) === 0);
-await wait(1400);
-check('then it reloads', (await page.evaluate(() => __ll.game.shells)) === 2);
+check('two shots use two rounds', (await page.evaluate(() => __ll.game.rounds)) === 5);
+for (let i = 0; i < 5; i++) {
+  await page.mouse.down();
+  await page.mouse.up();
+  await wait(120);
+}
+check('seven empty it', (await page.evaluate(() => __ll.game.rounds)) === 0);
+await wait(2000);
+check('then it reloads', (await page.evaluate(() => __ll.game.rounds)) === 7);
 await page.evaluate(() => { __ll.game.pitch = 0; });
 await page.keyboard.press('KeyG');
 await wait(400);
@@ -264,6 +284,17 @@ await page.keyboard.up('KeyW');
 const b1 = await page.evaluate(() => ({ x: __ll.game.boat.x, z: __ll.game.boat.z, h: __ll.game.boat.heading, sp: __ll.game.boat.speed }));
 check('W rows the boat', Math.hypot(b1.x - b0.x, b1.z - b0.z) > 4, `moved ${Math.hypot(b1.x - b0.x, b1.z - b0.z).toFixed(1)} m`);
 check('A turns the boat', Math.abs(b1.h - b0.h) > 0.05, `turned ${(b1.h - b0.h).toFixed(2)} rad`);
+
+// Turning: quick, and from a standstill.
+await page.evaluate(() => __ll.boatAt(-110, 30, 1.4));
+await wait(300);
+const h0 = await page.evaluate(() => __ll.game.boat.heading);
+await page.keyboard.down('KeyD');
+await wait(2000);
+await page.keyboard.up('KeyD');
+const h1 = await page.evaluate(() => __ll.game.boat.heading);
+check('the boat turns easily from a standstill', Math.abs(h1 - h0) > 1.2 && h1 < h0, `${(h1 - h0).toFixed(2)} rad in 2 s`);
+await wait(500);
 
 // A pat in the boat.
 await page.keyboard.press('KeyP');
@@ -461,6 +492,25 @@ await page.keyboard.press('KeyJ');
 await wait(900);
 check('J opens the journal', await page.evaluate(() => __ll.game.ui.journalOpen));
 await shot('15-journal');
+const jTabs = await page.evaluate(() => ({ places: document.querySelectorAll('#jPlaces button').length, bands: document.querySelectorAll('#jBands button').length }));
+check('the journal has a tab for each place and part of the day', jTabs.places === 3 && jTabs.bands === 6, JSON.stringify(jTabs));
+const overflow = await page.evaluate(() => {
+  const out = [];
+  for (const p of document.querySelectorAll('#jPlaces button')) {
+    p.click();
+    for (let b = 0; b < 6; b++) {
+      document.querySelectorAll('#jBands button')[b].click();
+      const g = document.getElementById('jgrid');
+      const tabs = [...document.querySelectorAll('#jPlaces button, #jBands button')];
+      out.push({ n: g.children.length, scrolls: g.scrollHeight > g.clientHeight + 1, clipped: tabs.some((t) => t.scrollWidth > t.clientWidth + 1) });
+    }
+  }
+  return { empty: out.filter((o) => o.n === 0).length, scrolls: out.filter((o) => o.scrolls).length, clipped: out.filter((o) => o.clipped).length, most: Math.max(...out.map((o) => o.n)) };
+});
+check('every page fits, with nothing empty or cut off', overflow.empty === 0 && overflow.scrolls === 0 && overflow.clipped === 0, JSON.stringify(overflow));
+await page.evaluate(() => { document.querySelectorAll('#jPlaces button')[1].click(); document.querySelectorAll('#jBands button')[4].click(); });
+await wait(200);
+await shot('15j-journal-night');
 await page.keyboard.press('KeyJ');
 await wait(500);
 await page.evaluate(() => __ll.game.input.onLockChange?.(false));

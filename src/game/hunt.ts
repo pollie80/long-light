@@ -1,4 +1,4 @@
-// Wildfowling: flocks cross the sky, and you can take a double-barrelled shotgun to them. The birds are
+// Flocks cross the sky, and you can take a Desert Eagle to them, which is not how this is normally done. The birds are
 // each player's own, so friends see each other firing but aim at their own sky. Feathers, no blood.
 import * as THREE from 'three';
 import { mulberry32 } from '../core/noise';
@@ -60,7 +60,7 @@ export interface ShotResult {
 
 const POOL = 16;
 const FEATHERS = 120;
-const REACH = 95;
+const REACH = 110;
 
 export class Hunt {
   group = new THREE.Group();
@@ -253,7 +253,7 @@ export class Hunt {
     if (any) this.fMesh.instanceMatrix.needsUpdate = true;
   }
 
-  /** A shot from `origin` along the unit vector `dir`: the pattern widens with range. */
+  /** A single bullet from `origin` along the unit vector `dir`, with a little allowance so a good aim counts. */
   fire(origin: THREE.Vector3, dir: THREE.Vector3): ShotResult | null {
     let result: ShotResult | null = null;
     for (const b of this.birds) {
@@ -262,7 +262,7 @@ export class Hunt {
       const along = to.dot(dir);
       if (along < 2 || along > REACH) continue;
       const missBy = this.tmp2.copy(dir).multiplyScalar(along).sub(to).length();
-      if (missBy > (0.7 + along * 0.034) * b.kind.size) continue;
+      if (missBy > (0.5 + along * 0.016) * b.kind.size) continue;
       b.alive = false;
       b.vel.multiplyScalar(0.55);
       b.vel.y = 1.5;

@@ -100,3 +100,59 @@ describe('how rare a fish is', () => {
     }
   });
 });
+
+describe('neon fish', () => {
+  const share = async (zone: 'magic' | 'deep', hour: number) => {
+    vi.resetModules();
+    const fish = await import('./fishdata');
+    let seed = 11;
+    const rnd = () => {
+      seed = (seed * 1664525 + 1013904223) % 4294967296;
+      return seed / 4294967296;
+    };
+    let lit = 0;
+    for (let i = 0; i < 6000; i++) {
+      const c = fish.pickCatch(zone, hour, rnd, () => true);
+      if (c.neon || c.pattern === 'glow') lit += 1;
+    }
+    return lit / 6000;
+  };
+
+  it('never come up by day, often at night, nearly always in awake water', async () => {
+    expect(await share('deep', 12)).toBe(0);
+    const night = await share('deep', 23);
+    expect(night).toBeGreaterThan(0.2);
+    expect(night).toBeLessThan(0.45);
+    expect(await share('magic', 23)).toBeGreaterThan(0.85);
+  });
+
+  it('keep the name and rarity of the fish they are', async () => {
+    const fish = await import('./fishdata');
+    const sp = fish.SPECIES[0];
+    const n = fish.neonOf(sp);
+    expect(n.id).toBe(sp.id);
+    expect(n.tier).toBe(sp.tier);
+    expect(n.neon).toBe(true);
+    expect(n.glow).toBeTruthy();
+  });
+});
+
+describe('the journal', () => {
+  it('has every fish of every place on at least one page', async () => {
+    const fish = await import('./fishdata');
+    for (const place of MAP_ORDER) {
+      const pages = new Set(fish.BANDS.flatMap((b) => fish.speciesIn(place, b.id).map((s) => s.id)));
+      for (const s of fish.placeSpecies(place)) expect(pages.has(s.id), `${place}: ${s.id}`).toBe(true);
+      for (const b of fish.BANDS) expect(fish.speciesIn(place, b.id).length, `${place}: ${b.id}`).toBeGreaterThan(0);
+    }
+  });
+
+  it('opens on the part of the day it is', async () => {
+    const fish = await import('./fishdata');
+    expect(fish.bandAt(5.5)).toBe('dawn');
+    expect(fish.bandAt(12)).toBe('day');
+    expect(fish.bandAt(18)).toBe('golden');
+    expect(fish.bandAt(23)).toBe('night');
+    expect(fish.bandAt(2)).toBe('night');
+  });
+});

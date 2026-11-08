@@ -1,7 +1,7 @@
 // HTML overlay: title, prompts, catch card, journal, menu. Reads and writes game state through callbacks.
 import './styles.css';
 import { clockLabel, sunDir } from '../core/time';
-import { SPECIES, Species, TIER_LABEL, TIERS, Tier } from '../game/fishdata';
+import { SPECIES, Species, TIER_LABEL, TIERS, Tier, BANDS, BandId, bandAt, neonOf, placeSpecies, speciesIn } from '../game/fishdata';
 import { paintFish } from '../game/fishart';
 import { BOAT_PANEL, LOOK_PANEL, PET_PANEL, Wardrobe, WardrobeHooks, WardrobePanel } from './wardrobe';
 import { ICON } from './icons';
@@ -14,9 +14,19 @@ import canadaImg from '../../assets/place-canada.jpg?inline';
 /** Filled stars for a tier, so rarity reads at a glance and without relying on colour. */
 const tierStars = (t: Tier) => '★'.repeat(TIERS.indexOf(t) + 1) + '☆'.repeat(TIERS.length - 1 - TIERS.indexOf(t));
 
+const BAND_ICON: Record<BandId, string> = { any: ICON.clock, dawn: ICON.dawn, day: ICON.sun, golden: ICON.sunset, night: ICON.moon, awake: ICON.sparkle };
+const BAND_NOTE: Record<BandId, string> = {
+  any: 'These are out at every hour. Point at one to read about it.',
+  dawn: 'First light has fish of its own. Point at one to read about it.',
+  day: 'What bites in full daylight. Point at one to read about it.',
+  golden: 'The evening rise, right through sunset. Point at one to read about it.',
+  night: 'After dark, about one fish in three comes up neon. Point at one to read about it.',
+  awake: 'Where the water glows at night, nearly everything comes up neon, and any night fish may turn up.',
+};
+
 const PLACE_IMG: Record<MapId, string> = { cove: coveImg, philippines: philippinesImg, canada: canadaImg };
 
-export interface JournalEntry { count: number; firstHour: number; biggest?: number }
+export interface JournalEntry { count: number; firstHour: number; neon?: number; biggest?: number }
 export type Journal = Record<string, JournalEntry>;
 
 export interface MenuHooks {
@@ -100,6 +110,9 @@ export class UI {
   joining = false;
   private focusI = 0;
   private padPrev: boolean[] = [];
+  private jPlace: MapId = MAP.id;
+  private jBand: BandId = 'any';
+  private jData: Journal | null = null;
   wardrobe!: Wardrobe;
 
   constructor(private hooks: MenuHooks, wardrobeHooks: WardrobeHooks) {
@@ -151,7 +164,9 @@ export class UI {
       </div>
       <div id="veil" class="hidden"></div>
       <div id="journal" class="paper hidden">
-        <header><h2>What the bay has given</h2><span id="jCount"></span></header>
+        <header><h2>${ICON.book} Journal</h2><span id="jCount"></span></header>
+        <nav id="jPlaces" aria-label="Place"></nav>
+        <nav id="jBands" aria-label="Time of day"></nav>
         <div id="jgrid"></div>
         <div id="jfoot"><div id="jDetail"></div><button class="iconBtn" id="jClose">${ICON.close}<span>Close</span></button></div>
       </div>
@@ -164,7 +179,7 @@ export class UI {
         <button data-h="-1" class="quiet">Cancel</button>
       </div>
       <div id="fps" class="gone"></div>
-      <div id="sights" class="gone"><i></i><div id="shells"><b></b><b></b></div></div>
+      <div id="sights" class="gone"><i></i><div id="rounds">${'<b></b>'.repeat(7)}</div></div>
       <div id="places" class="paper hidden">
         <h2>${ICON.map} Choose a place</h2>
         <div class="placeCards">
@@ -231,10 +246,11 @@ export class UI {
         </div>
         <div id="mKeys" class="gone">
           <h4>Moving</h4>
-          <div class="keyRow"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span>Walk or row</div>
+          <div class="keyRow"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span>Run or row</div>
           <div class="keyRow"><span><kbd>Mouse</kbd></span>Look around</div>
           <div class="keyRow"><span><kbd>Q</kbd></span>Stroll the path by itself</div>
-          <div class="keyRow"><span><kbd>Shift</kbd></span>Hurry, or row twice as fast</div>
+          <div class="keyRow"><span><kbd>Shift</kbd></span>Walk instead of run</div>
+          <div class="keyRow"><span><kbd>Shift</kbd> in a boat</span>Row twice as fast</div>
           <div class="keyRow"><span><kbd>Space</kbd> tap</span>Jump</div>
           <h4>Doing</h4>
           <div class="keyRow"><span><kbd>E</kbd></span>Use what is nearby, or climb into a friend's boat</div>
@@ -242,8 +258,8 @@ export class UI {
           <div class="keyRow"><span><kbd>B</kbd></span>Have a beer</div>
           <div class="keyRow"><span><kbd>P</kbd></span>Pat your pet, ashore or afloat</div>
           <div class="keyRow"><span><kbd>C</kbd> near a friend</span>Cheers, with fireworks</div>
-          <div class="keyRow"><span><kbd>G</kbd></span>Shotgun in or out</div>
-          <div class="keyRow"><span><kbd>Click</kbd> with shotgun</span>Fire</div>
+          <div class="keyRow"><span><kbd>G</kbd></span>Desert Eagle in or out</div>
+          <div class="keyRow"><span><kbd>Click</kbd> with it out</span>Fire</div>
           <h4>Other</h4>
           <div class="keyRow"><span><kbd>J</kbd></span>Journal</div>
           <div class="keyRow"><span><kbd>T</kbd> hold</span>Bring the sun along</div>
@@ -460,7 +476,7 @@ export class UI {
   }
 
   fishPainting(sp: Species, silhouette: boolean, w = 620, h = 330): HTMLCanvasElement {
-    const key = `${sp.id}:${silhouette}:${w}`;
+    const key = `${sp.id}:${silhouette}:${w}:${sp.neon ? 1 : 0}`;
     let c = this.fishCache.get(key);
     if (!c) {
       c = paintFish(sp, w, h, silhouette);
@@ -479,7 +495,7 @@ export class UI {
     el('cName').textContent = sp.name;
     const tier = el('cTier');
     tier.className = `tier tier-${sp.tier}`;
-    tier.innerHTML = `<span>${tierStars(sp.tier)}</span> ${TIER_LABEL[sp.tier]}`;
+    tier.innerHTML = `<span>${tierStars(sp.tier)}</span> ${TIER_LABEL[sp.tier]}${sp.neon ? ' &middot; <b class="neonTag">Neon</b>' : ''}`;
     const art = el('cArt');
     art.innerHTML = '';
     const canvas = document.createElement('canvas');
@@ -494,14 +510,53 @@ export class UI {
     card.classList.remove('hidden');
   }
 
+  /** Opens on where you are and the part of the day it is now, which is what you're most likely to want. */
+  journalOpenAt(hour: number) {
+    this.jPlace = MAP.id;
+    this.jBand = bandAt(hour);
+  }
+
   private fillJournal(j: Journal) {
+    // Places.
+    const places = el('jPlaces');
+    places.innerHTML = '';
+    for (const id of MAP_ORDER) {
+      const fish = placeSpecies(id);
+      const b = document.createElement('button');
+      b.className = id === this.jPlace ? 'on' : '';
+      b.innerHTML = `${ICON.map}<span></span><i>${fish.filter((s) => j[s.id]).length}/${fish.length}</i>`;
+      b.querySelector('span')!.textContent = MAPS[id].name;
+      b.onclick = () => {
+        this.jPlace = id;
+        this.hooks.sound('tick');
+        this.fillJournal(j);
+      };
+      places.appendChild(b);
+    }
+    // Parts of the day.
+    const bands = el('jBands');
+    bands.innerHTML = '';
+    for (const band of BANDS) {
+      const fish = speciesIn(this.jPlace, band.id);
+      const b = document.createElement('button');
+      b.className = band.id === this.jBand ? 'on' : '';
+      b.innerHTML = `${BAND_ICON[band.id]}<span>${band.label}</span><i>${fish.filter((s) => j[s.id]).length}/${fish.length}</i>`;
+      b.onclick = () => {
+        this.jBand = band.id;
+        this.hooks.sound('tick');
+        this.fillJournal(j);
+      };
+      bands.appendChild(b);
+    }
+    const all = placeSpecies(this.jPlace);
+    el('jCount').textContent = `${all.filter((s) => j[s.id]).length} of ${all.length} met here`;
+    const detail = el('jDetail');
+    const note = BAND_NOTE[this.jBand];
+    detail.textContent = note;
+    // The fish.
     const grid = el('jgrid');
     grid.innerHTML = '';
-    const known = SPECIES.filter((s) => j[s.id]).length;
-    el('jCount').textContent = `${known} of ${SPECIES.length} met`;
-    const detail = el('jDetail');
-    detail.textContent = known ? 'Point at a fish to read about it.' : 'Nothing yet. The water can wait, and so can you.';
-    for (const sp of SPECIES) {
+    for (const sp of speciesIn(this.jPlace, this.jBand)) {
       const e = j[sp.id];
       const slot = document.createElement('div');
       slot.className = `jslot tier-${sp.tier}`;
@@ -509,7 +564,9 @@ export class UI {
       stars.className = 'jstars';
       stars.textContent = tierStars(sp.tier);
       slot.appendChild(stars);
-      const src = this.fishPainting(sp, !e, 372, 198);
+      // Once one's come up glowing, that's the picture to keep.
+      const shown = e?.neon ? neonOf(sp) : sp;
+      const src = this.fishPainting(shown, !e, 372, 198);
       const c = document.createElement('canvas');
       c.width = src.width;
       c.height = src.height;
@@ -519,10 +576,13 @@ export class UI {
       name.textContent = e ? sp.name : '...';
       slot.appendChild(name);
       const em = document.createElement('em');
-      em.textContent = e ? (e.count > 1 ? `met ${e.count} times` : 'met once') : '';
+      em.textContent = e ? `${e.count > 1 ? `met ${e.count} times` : 'met once'}${e.neon ? `, ${e.neon} neon` : ''}` : '';
       slot.appendChild(em);
       slot.onmouseenter = () => {
         detail.textContent = e ? `${sp.name}. ${sp.verse}` : `Not yet met. ${sp.hint}`;
+      };
+      slot.onmouseleave = () => {
+        detail.textContent = note;
       };
       grid.appendChild(slot);
     }
@@ -531,6 +591,7 @@ export class UI {
   showJournal(v: boolean, j: Journal, closeKey: string) {
     this.journalOpen = v;
     if (v) {
+      this.jData = j;
       this.fillJournal(j);
       el('jClose').onclick = () => this.hooks.resume();
       void closeKey;
@@ -593,12 +654,12 @@ export class UI {
     el('pNote').textContent = text;
   }
 
-  /** The sights, and how many shells are left, or null when the gun is away. */
-  sights(shells: number | null) {
+  /** The sights, and how many rounds are left, or null when the gun is away. */
+  sights(rounds: number | null) {
     const box = el('sights');
-    box.classList.toggle('gone', shells === null);
-    if (shells === null) return;
-    box.querySelectorAll('#shells b').forEach((b, i) => b.classList.toggle('spent', i >= shells));
+    box.classList.toggle('gone', rounds === null);
+    if (rounds === null) return;
+    box.querySelectorAll('#rounds b').forEach((b, i) => b.classList.toggle('spent', i >= rounds));
   }
 
   setFps(text: string | null) {
@@ -682,6 +743,29 @@ export class UI {
     this.root.style.opacity = v ? '0' : '1';
   }
 
+  /** L1 and R1 go through the parts of the day, the d-pad through the places. */
+  private padJournal() {
+    const p = Array.from(navigator.getGamepads?.() ?? []).find((x) => x);
+    if (!p || !this.jData) return;
+    const edge = (i: number) => {
+      const b = !!p.buttons[i]?.pressed;
+      const r = b && !this.padPrev[i];
+      this.padPrev[i] = b;
+      return r;
+    };
+    const step = (edge(5) ? 1 : 0) - (edge(4) ? 1 : 0);
+    const place = (edge(15) ? 1 : 0) - (edge(14) ? 1 : 0);
+    if (step) {
+      const i = BANDS.findIndex((b) => b.id === this.jBand);
+      this.jBand = BANDS[(i + step + BANDS.length) % BANDS.length].id;
+    }
+    if (place) this.jPlace = MAP_ORDER[(MAP_ORDER.indexOf(this.jPlace) + place + MAP_ORDER.length) % MAP_ORDER.length];
+    if (step || place) {
+      this.hooks.sound('tick');
+      this.fillJournal(this.jData);
+    }
+  }
+
   /** Lets a PS4 controller drive the menus. */
   private padNav() {
     const pads = navigator.getGamepads?.() ?? [];
@@ -734,6 +818,7 @@ export class UI {
     }
     this.wardrobe.update();
     if (this.menuOpen || this.restOpen) this.padNav();
+    if (this.journalOpen) this.padJournal();
     if (this.menuOpen) {
       const hour = this.hooks.getHour();
       el('mTimeV').textContent = clockLabel(hour);
