@@ -84,7 +84,7 @@ check('holding Cross charges', (await s()).fish === 'charge');
 await page.evaluate(() => { __pad.buttons[0].pressed = false; });
 await wait(2600);
 check('releasing Cross casts', (await s()).fish === 'wait');
-await page.evaluate(() => { __ll.game.fishing.waitT = 0.05; });
+await page.evaluate(() => { __ll.game.fishing.waitT = 0.0001; });
 await wait(600);
 await button(CROSS);
 check('Cross hooks', (await s()).fish === 'reel');

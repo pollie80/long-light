@@ -180,7 +180,7 @@ await page.keyboard.down('Space');
 await wait(600);
 await page.keyboard.up('Space');
 await wait(2500);
-await g(() => { __ll.game.fishing.waitT = 0.05; __ll.game.fishing.preset = null; });
+await g(() => { __ll.game.fishing.waitT = 0.0001; __ll.game.fishing.preset = null; });
 await wait(400);
 await page.keyboard.press('Space');
 await wait(300);
@@ -264,6 +264,227 @@ await shot('w3-gear-gun-next');
 await page.locator('#wFoot button[data-w="done"]').click();
 await wait(600);
 check('done puts the float away', await g(() => !__ll.game.fishing.bobber.visible && !__ll.game.fisher.gun.visible));
+
+// ---- Reloading, with each gun's own routine --------------------------------------------------------
+await g(() => __ll.place(-12, 0, 1.57));
+await wait(500);
+for (const [key, kind, at] of [['Digit1', 'pistol', 0.3], ['Digit2', 'rifle', 0.45], ['Digit3', 'shotgun', 0.25]]) {
+  await page.keyboard.press(key);
+  await wait(600);
+  await click();
+  await wait(150);
+  await page.keyboard.press('KeyR');
+  const dur = { pistol: 1.7, rifle: 2.6, shotgun: 2.1 }[kind];
+  await wait(dur * 1000 * at);
+  const mid = await g(() => {
+    const f = __ll.game.fisher;
+    return { move: +f.gunMove.position.z.toFixed(3), rx: +f.gunMove.rotation.x.toFixed(2), rz: +f.gunMove.rotation.z.toFixed(2), mag: f.gunMag ? +f.gunMag.position.y.toFixed(3) : 0, magShown: f.gunMag ? f.gunMag.visible : false, ammo: f.gunAmmo.visible, rl: __ll.game.netState().rl };
+  });
+  await shot(`l-${kind}`);
+  const moving = kind === 'pistol' ? (mid.ammo || mid.mag < -0.05) : kind === 'rifle' ? Math.abs(mid.rz) > 0.5 : mid.rx < -0.3;
+  check(`the ${kind} reloads with its own moving parts`, moving && mid.rl > 0, JSON.stringify(mid));
+  await wait(dur * 1000 * (1 - at) + 400);
+  check(`and the ${kind} is full again after`, await g((k) => __ll.game.ammo[k] === ({ pistol: 7, rifle: 5, shotgun: 2 })[k] && __ll.game.fisher.gunMove.rotation.x === 0 && __ll.game.fisher.gunMove.rotation.z === 0, kind));
+}
+await page.keyboard.press('KeyG');
+await wait(400);
+
+// ---- Birds in the journal ------------------------------------------------------------------------
+await g(() => { __ll.game.closeMenus(); });
+await page.keyboard.press('KeyJ');
+await wait(600);
+await page.locator('#jKinds button[data-k="birds"]').click();
+await wait(500);
+const coveBirds = ['mallard', 'herring', 'woodpigeon', 'cormorant', 'greyheron', 'oystercatcher', 'barnowl', 'snowyowl'];
+const bj = await g(() => ({ slots: document.querySelectorAll('#jgrid .jslot').length, named: Array.from(document.querySelectorAll('#jgrid .jslot b')).filter((b) => b.textContent !== '...').length, bands: document.getElementById('jBands').classList.contains('gone'), count: document.getElementById('jCount').textContent, log: Object.keys(__ll.game.save.birdLog) }));
+check('the journal has a page of birds, with the ones brought down named', bj.slots === 8 && bj.named === bj.log.filter((id) => coveBirds.includes(id)).length && bj.named > 0 && bj.bands, JSON.stringify(bj));
+await shot('j-birds');
+await page.locator('#jPlaces button').nth(2).click();
+await wait(400);
+await shot('j-birds-canada');
+await page.locator('#jKinds button[data-k="fish"]').click();
+await wait(300);
+check('and back to the fish', await g(() => !document.getElementById('jBands').classList.contains('gone') && document.querySelectorAll('#jgrid .jslot').length > 0));
+await page.keyboard.press('Escape');
+await wait(400);
+
+// ---- The energy for rowing hard -----------------------------------------------------------------
+await g(() => { __ll.board(); __ll.boatAt(-110, 30, 1.4); __ll.setHour(11); });
+await wait(1200);
+const e0 = await g(() => __ll.game.energy);
+await page.keyboard.down('ShiftLeft');
+await page.keyboard.down('KeyW');
+await wait(3000);
+const hard = await g(() => ({ e: +__ll.game.energy.toFixed(2), shown: !document.getElementById('energy').classList.contains('gone'), v: +Math.abs(__ll.game.boat.speed).toFixed(1) }));
+await shot('e1-rowing-hard');
+check('rowing hard uses up energy, and the bar shows', e0 > 0.99 && hard.e < 0.8 && hard.shown, JSON.stringify(hard));
+await wait(7000);
+const spent = await g(() => ({ e: __ll.game.energy, winded: __ll.game.winded, note: document.getElementById('eNote').textContent }));
+check('until it runs out', spent.e < 0.05 && spent.winded && /breath/.test(spent.note), JSON.stringify(spent));
+await page.keyboard.up('ShiftLeft');
+await page.keyboard.up('KeyW');
+await wait(300);
+const a0 = await g(() => __ll.game.energy);
+await wait(3000);
+const a1 = await g(() => __ll.game.energy);
+await page.keyboard.press('KeyV');
+await wait(500);
+const sb0 = await g(() => __ll.game.energy);
+await wait(3000);
+const sb1 = await g(() => __ll.game.energy);
+check('it comes back resting, and faster sitting back', a1 > a0 && (sb1 - sb0) > (a1 - a0) * 1.8, `${(a1 - a0).toFixed(3)} then ${(sb1 - sb0).toFixed(3)} in 3 s`);
+const look = await g(() => {
+  const G = __ll.game;
+  const d = G.camera.getWorldDirection(new __ll.THREE.Vector3());
+  const f = G.facingYaw();
+  return +(d.x * -Math.sin(f) + d.z * -Math.cos(f)).toFixed(2);
+});
+check('sitting back in the boat, you look the way the fisher faces', look > 0.85, `facing dot ${look}`);
+await shot('e2-boat-sit-back');
+await page.keyboard.press('KeyV');
+await wait(1500);
+
+// ---- Fish come in smoothly, and are the size the card says ----------------------------------------
+await page.keyboard.down('Space');
+await wait(600);
+await page.keyboard.up('Space');
+for (let i = 0; i < 60 && (await g(() => __ll.game.fishing.state)) !== 'wait'; i++) await wait(50);
+const wt = await g(() => __ll.game.fishing.waitT);
+check('a bite can take up to two minutes', wt >= 4.9 && wt <= 120.5, `${wt.toFixed(1)} s`);
+await g(() => { __ll.game.fishing.waitT = Math.min(__ll.game.fishing.waitT, 5); });
+for (let i = 0; i < 60 && !(await g(() => !!__ll.game.swimmers.approacher)); i++) await wait(100);
+// Sampled on every game frame, against the game's own clock: the frame cap skips some browser frames, so the
+// browser's clock would make one frame's turn look twice as quick.
+const worst = await g(() => new Promise((done) => {
+  let prev = null;
+  let pt = 0;
+  let w = 0;
+  const end = performance.now() + 2000;
+  const step = () => {
+    const a = __ll.game.swimmers.approacher;
+    if (!a || performance.now() > end) return done(w);
+    const gt = __ll.game.time;
+    if (gt !== pt) {
+      const r = a.model.rotation.y;
+      if (prev !== null) w = Math.max(w, Math.abs(Math.atan2(Math.sin(r - prev), Math.cos(r - prev))) / (gt - pt));
+      prev = r;
+      pt = gt;
+    }
+    requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}));
+// The turn is capped at 2.2 a second, and the body sway adds up to about 0.6 on top.
+check('a fish coming to the float turns smoothly, without twitching', worst < 3.2, `${worst.toFixed(2)} rad/s at most`);
+const cameSize = await g(() => (__ll.game.swimmers.approacher ? __ll.game.swimmers.approacher.size : __ll.game.fishing.presetSize));
+await g(() => { __ll.game.fishing.waitT = 0.0001; });
+await wait(300);
+await page.keyboard.press('Space');
+await page.keyboard.down('Space');
+for (let i = 0; i < 50 && (await g(() => __ll.game.fishing.state)) !== 'landed'; i++) await wait(400);
+await page.keyboard.up('Space');
+await wait(300);
+const landed = await g(() => ({ size: __ll.game.fishing.landedSize, note: document.getElementById('cNote').textContent }));
+const cm = Math.round(cameSize * 100);
+check('the one you catch is the size it was in the water, to the centimetre', Math.abs(landed.size - cameSize) < 0.001 && (cameSize >= 1 || landed.note.startsWith(`${cm} cm`)), `${cm} cm in the water; ${landed.note}`);
+await shot('f4-caught-like-card');
+await page.keyboard.press('Space');
+await wait(1500);
+
+// ---- Weather --------------------------------------------------------------------------------------
+check('changing weather is off to start with', await g(() => __ll.game.save.weather === false && __ll.game.wx.light === 1));
+await g(() => __ll.game.openMenu());
+await wait(500);
+await page.locator('#mWeather').click();
+await wait(300);
+check('the switch turns it on and remembers', await g(() => __ll.game.save.weather === true && JSON.parse(localStorage.getItem('longlight.save.v1')).weather === true && document.getElementById('mWeather').classList.contains('on')));
+await g(() => __ll.game.closeMenus());
+await wait(6000);
+const wxNow = await g(() => __ll.game.wx);
+// The sky may be on a plain 'fair' spell, which looks like calm; what matters is that it has eased all the way in.
+const wxK = await g(() => __ll.game.weatherK);
+check('and the weather eases in', wxK > 0.9, `${wxK.toFixed(2)} of the way, ${JSON.stringify(wxNow)}`);
+await g(() => { __ll.game.save.weather = false; });
+
+// ---- Reversing turns like backing a car ---------------------------------------------------------
+await g(() => { __ll.board(); __ll.boatAt(-110, 30, 1.4); __ll.setHour(11); });
+await wait(800);
+const fwdTurn = async (keys) => {
+  await g(() => __ll.boatAt(-110, 30, 1.4));
+  await wait(300);
+  const h0 = await g(() => __ll.game.boat.heading);
+  for (const k of keys) await page.keyboard.down(k);
+  await wait(1500);
+  for (const k of keys) await page.keyboard.up(k);
+  return (await g(() => __ll.game.boat.heading)) - h0;
+};
+const ahead = await fwdTurn(['KeyW', 'KeyA']);
+const back = await fwdTurn(['KeyS', 'KeyA']);
+check('backing with left swings the other way to going forward with left', Math.sign(ahead) !== Math.sign(back) && Math.abs(back) > 0.1, `${ahead.toFixed(2)} forward, ${back.toFixed(2)} backing`);
+
+// ---- Shooting a fish you can see ------------------------------------------------------------------
+await page.keyboard.press('KeyE');
+await g(() => __ll.place(-12, 0, 1.57));
+await wait(600);
+await page.keyboard.press('Digit1');
+await wait(600);
+const metFish = await g(() => Object.keys(__ll.game.save.journal).reduce((t, k) => t + __ll.game.save.journal[k].count, 0));
+await g(() => {
+  const G = __ll.game;
+  G.pitch = 0.12;
+});
+await wait(300);
+const placed = await g(() => {
+  const G = __ll.game;
+  const sw = G.swimmers;
+  const s = sw.fish.find((f) => !f.gone && f.mode === 'wander') ?? null;
+  if (!s) return false;
+  const dir = G.shotDir();
+  const t = (s.model.position.y - G.camera.position.y) / dir.y;
+  s.x = G.camera.position.x + dir.x * t;
+  s.z = G.camera.position.z + dir.z * t;
+  s.tx = s.x;
+  s.tz = s.z;
+  s.speed = 0;
+  s.show = 1;
+  return true;
+});
+await wait(60);
+await click();
+await wait(400);
+const after = await g(() => ({ shot: __ll.game.swimmers.fish.filter((f) => f.mode === 'shot').length, met: Object.keys(__ll.game.save.journal).reduce((t, k) => t + __ll.game.save.journal[k].count, 0) }));
+check('a fish in the water can be shot, and goes in the journal', placed && after.shot === 1 && after.met === metFish + 1, JSON.stringify(after));
+await shot('s1-fish-shot');
+await page.keyboard.press('KeyG');
+await wait(400);
+
+// ---- Fish coming to the float stay down ----------------------------------------------------------
+await g(() => { __ll.board(); __ll.boatAt(-60, 20, 1.4); });
+await wait(800);
+await page.keyboard.down('Space');
+await wait(600);
+await page.keyboard.up('Space');
+for (let i = 0; i < 60 && (await g(() => __ll.game.fishing.state)) !== 'wait'; i++) await wait(50);
+await g(() => { __ll.game.fishing.waitT = 4; });
+for (let i = 0; i < 40 && !(await g(() => !!__ll.game.swimmers.approacher)); i++) await wait(100);
+await wait(800);
+const depth = await g(() => (__ll.game.swimmers.approacher ? __ll.game.swimmers.approacher.model.position.y : null));
+check('a fish coming to the float keeps down under the water', depth !== null && depth < -0.18, String(depth));
+await page.keyboard.press('KeyR');
+await wait(400);
+
+// ---- A glowing flock after dark -------------------------------------------------------------------
+await g(() => __ll.setHour(22));
+await g(() => {
+  const H = __ll.game.hunt;
+  for (const b of H.birds) { b.active = false; b.alive = false; b.root.visible = false; }
+  H.rnd = () => 0.01;
+  H.nextFlock = 0;
+});
+await wait(400);
+const glow = await g(() => __ll.game.hunt.birds.filter((b) => b.active && b.neon).length);
+check('now and then after dark a flock glows', glow > 0, `${glow} glowing`);
+await g(() => { __ll.setHour(11); });
 
 check('no errors in the page', errors.length === 0, errors.slice(0, 3).join(' | '));
 console.log(results.join('\n'));

@@ -272,14 +272,38 @@ export function paintFish(sp: Species, w: number, h: number, silhouette = false)
 }
 
 /** A small lofted model of the fish, for the moment it comes out of the water. */
-export function fishModel(sp: Species): THREE.Group {
+/** The card's painting of a fish, read back as pixels so the model can wear the same colours and markings. */
+const PW = 288;
+const PH = 156;
+const paintCache = new Map<string, Uint8ClampedArray>();
+function paintPixels(sp: Species): Uint8ClampedArray | null {
+  if (typeof document === 'undefined') return null;
+  const key = `${sp.id}|${sp.neon ? 1 : 0}`;
+  let px = paintCache.get(key);
+  if (!px) {
+    const c = paintFish(sp, PW, PH, false);
+    px = c.getContext('2d')!.getImageData(0, 0, PW, PH).data;
+    paintCache.set(key, px);
+  }
+  return px;
+}
+
+/** The fish at `lengthM` long, nose to tail, exactly as the card will give it, painted like the card. */
+export function fishModel(sp: Species, lengthM = sp.length): THREE.Group {
   const group = new THREE.Group();
   const b = new Builder(strHash(sp.id));
-  const L = Math.max(0.25, sp.length) * 1.05; // storybook fish are a bit bigger than life
+  const L = lengthM;
   const H = L * Math.min(sp.depth, 0.6);
   const thick = H * 0.34;
-  const rings = 18;
-  const sides = 12;
+  const rings = 36;
+  const sides = 14;
+  // Where the painting's body lies on its canvas, matching paintFish.
+  const px = sp.pattern === 'eel' ? null : paintPixels(sp);
+  const pL = PW * 0.72;
+  const pNose = PW * 0.47 + pL / 2;
+  const pTail = PW * 0.47 - pL / 2 + pL * 0.12;
+  const pH = sp.pattern === 'ray' ? pL * 0.62 : pL * sp.depth;
+  const pcy = PH * 0.52;
   const top = new THREE.Color(sp.top);
   const side = new THREE.Color(sp.side);
   const belly = new THREE.Color(sp.belly);
@@ -300,6 +324,15 @@ export function fishModel(sp: Species): THREE.Group {
       const v = Math.cos(a) * 0.5 + 0.5;
       if (v > 0.55) c.copy(side).lerp(top, (v - 0.55) / 0.45);
       else c.copy(belly).lerp(side, v / 0.55);
+      if (px) {
+        // Read the painting at the same place: along from the tail, up or down from the middle line.
+        const sx = Math.round(pTail + t * (pNose - pTail) * 0.96);
+        const sy = Math.round(pcy - Math.cos(a) * (pH / 2) * k * 0.82);
+        if (sx >= 0 && sx < PW && sy >= 0 && sy < PH) {
+          const i = (sy * PW + sx) * 4;
+          if (px[i + 3] > 140) c.setRGB(px[i] / 255, px[i + 1] / 255, px[i + 2] / 255, THREE.SRGBColorSpace);
+        }
+      }
       cols.push(c.r, c.g, c.b);
     }
   }

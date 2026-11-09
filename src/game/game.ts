@@ -25,13 +25,15 @@ import { Pet } from '../actors/pet';
 import { Hunt } from './hunt';
 import { Swimmers } from './swimmers';
 import { GUN_ORDER, GUNS, GunKind } from './guns';
+import { BirdEntry, BIRDS } from './birddata';
+import { blendWeather, CALM, weatherAt, WeatherNow } from '../world/weather';
 import { Fireworks } from '../world/fireworks';
 import { Q, setQuality } from '../core/quality';
 import { MAP, MapId, MAPS, switchMap } from '../world/maps';
 import { Net, NetPlayer } from '../net/net';
 import { RemotePlayer } from '../net/remote';
 import { cleanName, codeFromHash, inviteLink, NetState } from '../net/protocol';
-import { SPECIES, TIER_LABEL, weightKg } from './fishdata';
+import { SPECIES, TIER_LABEL, weightKg, TIERS, Species } from './fishdata';
 
 type Mode = 'title' | 'intro' | 'walk' | 'transition' | 'row' | 'sit' | 'ride';
 
@@ -44,15 +46,25 @@ const RIDE_PET_OFFSET = new THREE.Vector3(0, 0.36, -0.52);
 const JUMP_SPEED = 4.4;
 const GRAVITY = 12.5;
 /** Where you can cast, a press shorter than this is a jump and a longer one is a cast. */
+/** Seconds of rowing hard from full to spent. */
+const SPRINT_S = 9;
 const TAP_S = 0.22;
 
-interface Save { journal: Journal; music: number; sfx: number; sensitivity: number; muteAway: boolean; name: string; walkSpeed: number; rowSpeed: number; fpsCap: number; resolution: number; quietAway: boolean; adapt: boolean; showFps: boolean; birds: Record<string, number>; bestShot: number; look?: Partial<CharacterLook> }
+interface Save { journal: Journal; music: number; sfx: number; sensitivity: number; muteAway: boolean; name: string; walkSpeed: number; rowSpeed: number; fpsCap: number; resolution: number; quietAway: boolean; adapt: boolean; showFps: boolean; birds: Record<string, number>; bestShot: number; look?: Partial<CharacterLook>; birdLog: Record<string, BirdEntry>; weather: boolean }
 
 function loadSave(): Save {
-  const d: Save = { journal: {}, music: 0.7, sfx: 0.9, sensitivity: 1, muteAway: true, name: '', walkSpeed: 1, rowSpeed: 1, fpsCap: 60, resolution: 0, quietAway: true, adapt: true, showFps: false, birds: {}, bestShot: 0 };
+  const d: Save = { journal: {}, music: 0.7, sfx: 0.9, sensitivity: 1, muteAway: true, name: '', walkSpeed: 1, rowSpeed: 1, fpsCap: 60, resolution: 0, quietAway: true, adapt: true, showFps: false, birds: {}, bestShot: 0, birdLog: {}, weather: false };
   try {
     const raw = localStorage.getItem(SAVE_KEY);
-    if (raw) return { ...d, ...JSON.parse(raw) };
+    if (raw) {
+      const s: Save = { ...d, ...JSON.parse(raw) };
+      // Birds brought down before the journal had a page for them.
+      for (const [name, count] of Object.entries(s.birds ?? {})) {
+        const b = BIRDS.find((x) => x.name === name);
+        if (b && !s.birdLog[b.id]) s.birdLog[b.id] = { count, longest: 0, firstHour: 12 };
+      }
+      return s;
+    }
   } catch {
     /* A private window has no storage. The game simply starts fresh. */
   }
@@ -160,6 +172,15 @@ export class Game {
   time = 0;
   look: Look = lookAt(17.72);
   weather: SkyWeather = { cover: 0.5, cirrus: 0.5, alto: 0.5, hero: 1, seedX: 0.13, seedY: 0.37 };
+  /** How far the changing weather is switched in, and what it is now. */
+  private weatherK = 0;
+  wx: WeatherNow = CALM;
+  /** Rowing hard: 1 fresh, 0 spent. Winded means spent, and not yet back to a quarter. */
+  energy = 1;
+  winded = false;
+  private sprinting = false;
+  private sprintK = 0;
+  private energyShow = 0;
   sun = new THREE.Vector3();
   moon = new THREE.Vector3();
   keyDir = new THREE.Vector3();
@@ -226,14 +247,27 @@ export class Game {
         this.ui.journalOpenAt(this.hour);
       this.ui.showJournal(true, this.save.journal, this.input.usingPad ? '<kbd>Circle</kbd>' : '<kbd>J</kbd> or <kbd>Esc</kbd>');
       },
+      birdLog: () => this.save.birdLog,
+      setWeather: (v) => {
+        this.save.weather = v;
+        this.writeSave();
+      },
+      getWeather: () => this.save.weather,
       resetJournal: () => {
         this.save.journal = {};
+        this.save.birdLog = {};
+        this.save.birds = {};
+        this.save.bestShot = 0;
         this.writeSave();
         this.audio.pageTurn();
         this.ui.showJournal(true, this.save.journal, '');
         this.ui.toast('The journal is blank again.', 3);
       },
-      quit: () => window.close(),
+      quit: () => {
+        window.close();
+        // A browser lets a page close only a window it opened itself. If it's still here, say how instead.
+        setTimeout(() => this.ui.toast('The browser will not let the game close its own window. Press Alt+F4.', 6), 400);
+      },
       savePainting: () => {
         this.wantShot = true;
       },
@@ -388,7 +422,9 @@ export class Game {
         this.ui.toast('You are in the cove.', 3.5);
       },
       onWrongMap: (map) => {
-        location.hash = location.hash.includes('map=') ? location.hash.replace(/map=[a-z]+/, `map=${map}`) : `${location.hash}&map=${map}`;
+        // Replaced, not added: an extra history entry would stop Quit from closing the window.
+        const h = location.hash.includes('map=') ? location.hash.replace(/map=[a-z]+/, `map=${map}`) : `${location.hash}&map=${map}`;
+        history.replaceState(null, '', h.startsWith('#') ? h : `#${h}`);
         location.reload();
       },
       onFail: (message) => {
@@ -569,6 +605,7 @@ export class Game {
       air: this.airborne,
       gun: this.gunOut,
       gk: this.gunKind,
+      rl: r(this.gunOut && this.reloadT > 0 ? 1 - this.reloadT / GUNS[this.gunKind].reload : 0),
       lg: r(this.loungeK),
       shots: this.shotsFired,
       pat: this.patT > 0,
@@ -584,6 +621,7 @@ export class Game {
       rx: r(rod.x), ry: r(rod.y), rz: r(rod.z),
       bend: r(pose.rodBend ?? 0), spin: r(pose.reelSpin ?? 0),
       fish: f.species && (f.state === 'reel' || f.state === 'landed' || f.state === 'released') ? f.species.id : '',
+      fl: r(f.size),
       bOut: r(this.beer.out), bLift: r(this.beer.lift),
     };
   }
@@ -609,6 +647,12 @@ export class Game {
       r.setName(p.name);
       r.update(dt, t, p.state, this.water, this.camera, lampK, window.innerWidth, window.innerHeight);
     }
+    // The friend in reach gets a small cheers by their name, when a cheers could happen.
+    const canAct = this.mode === 'walk' || this.mode === 'row' || this.mode === 'sit' || this.mode === 'ride';
+    const free = canAct && !this.anyMenuOpen() && !this.fishing.active && !this.gunOut && this.cheersT <= 0;
+    const near = free ? this.nearestFriend() : null;
+    const key = this.input.usingPad ? '<kbd>Up</kbd>' : '<kbd>C</kbd>';
+    for (const [id, r] of this.remotes) r.setCheers(near?.id === id ? (near.raised ? 'raised' : 'near') : 'none', key);
   }
 
   /** Keeps the clock and the connection alive when the window is not drawing. */
@@ -799,6 +843,11 @@ export class Game {
     this.fireworks.onLaunch = (d) => this.audio.rocket(d);
     this.fireworks.onBurst = (d) => this.audio.boom(d);
     this.hunt.onSplash = () => this.audio.splash(0.35);
+    this.hunt.seen = (id) => !!this.save.birdLog[id];
+    // Something special overhead: a quiet word, not a name, so it's still a surprise.
+    this.hunt.onRare = () => {
+      if (this.mode !== 'title' && !this.anyMenuOpen()) this.ui.toast('Something rare is on the wing.', 3.5);
+    };
     this.flash = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 6), new THREE.MeshBasicMaterial({ color: new THREE.Color(18, 11, 4) }));
     this.flash.layers.set(L.MAIN_ONLY);
     this.flash.visible = false;
@@ -827,7 +876,7 @@ export class Game {
     this.fishing.onHook = (strike) => {
       if (strike) this.ui.toast('Good strike. Well hooked.', 1.8);
     };
-    this.fishing.onFreed = (s, x, z, heading) => this.swimmers.release(s, x, z, heading);
+    this.fishing.onFreed = (s, x, z, heading, size) => this.swimmers.release(s, x, z, heading, size);
     this.fishing.onLanded = (s, size) => {
       const j = this.save.journal;
       const first = !j[s.id];
@@ -870,26 +919,32 @@ export class Game {
     const isMoon = keyIsMoon(h);
     this.keyDir.copy(isMoon ? this.moon : this.sun);
     U.uKeyDir.value.copy(this.keyDir);
-    U.uKeyCol.value.set(look.keyCol[0] * look.keyI, look.keyCol[1] * look.keyI, look.keyCol[2] * look.keyI);
+    // Changing weather, if it's on: eased in and out so switching it never jolts the sky.
+    this.weatherK = damp(this.weatherK, this.save.weather ? 1 : 0, 0.5, Math.min(dt, 0.1));
+    if (this.weatherK < 0.001) this.weatherK = 0;
+    const wx: WeatherNow = this.weatherK > 0 ? blendWeather(weatherAt(Date.now()), this.weatherK) : CALM;
+    this.wx = wx;
+    const keyI = look.keyI * wx.light;
+    U.uKeyCol.value.set(look.keyCol[0] * keyI, look.keyCol[1] * keyI, look.keyCol[2] * keyI);
     U.uShadowTint.value.set(...look.shadow);
     U.uBounce.value.set(...look.bounce);
     U.uAmb.value = look.amb;
-    U.uFog.value = look.fog;
-    U.uMist.value = look.mist;
+    U.uFog.value = look.fog * wx.mist;
+    U.uMist.value = Math.min(1, look.mist * wx.mist + Math.max(0, wx.mist - 1) * 0.12);
     U.uWarmth.value = look.warmth;
     U.uNight.value = look.night;
     U.uTime.value = this.time;
     // Weather drifts over days; cloud shadows only exist when the sun is well up.
     const shadeK = smoothstep(0.08, 0.3, this.sun.y) * 0.72;
-    U.uCloudShade.value.set(this.time * 0.0009, this.time * 0.0003, 0.4 + (skyMoodAt(h).cover - 0.45) * 0.8, shadeK);
+    U.uCloudShade.value.set(this.time * 0.0009, this.time * 0.0003, 0.4 + (Math.min(1, skyMoodAt(h).cover + wx.cover) - 0.45) * 0.8, shadeK);
     const gust = 0.72 + Math.sin(this.time * 0.13) * 0.28 + Math.sin(this.time * 0.37) * 0.12;
-    U.uWind.value.set(0.84 * gust, 0.42 * gust);
+    U.uWind.value.set(0.84 * gust * wx.wind, 0.42 * gust * wx.wind);
 
     const mood = skyMoodAt(h);
     this.skyI = mood.intensity;
-    this.weather.cover = mood.cover;
-    this.weather.cirrus = mood.cirrus;
-    this.weather.alto = mood.alto;
+    this.weather.cover = Math.min(1, Math.max(0, mood.cover + wx.cover));
+    this.weather.cirrus = Math.min(1, Math.max(0, mood.cirrus + wx.cirrus));
+    this.weather.alto = Math.min(1, Math.max(0, mood.alto + wx.alto));
 
     const wu = this.water.mat.uniforms;
     wu.uScatter.value.set(...look.waterScatter);
@@ -1289,10 +1344,18 @@ export class Game {
   }
 
   private updateRow(dt: number, t: number) {
-    this.boat.power = this.save.rowSpeed * (this.input.jog ? 2 : 1);
     const inp = this.input;
     const fishingActive = this.fishing.active;
     const resting = fishingActive || this.beer.active || this.gunOut || this.patT > 0 || this.cheersT > 0;
+    // Shift rows twice as hard while there's energy for it.
+    const pulling = !resting && Math.abs(inp.moveY) + Math.abs(inp.moveX) > 0.05;
+    this.sprinting = inp.jog && pulling && !this.winded && this.energy > 0;
+    if (this.sprinting) {
+      this.energy = Math.max(0, this.energy - dt / SPRINT_S);
+      if (this.energy <= 0) this.winded = true;
+    }
+    this.sprintK = damp(this.sprintK, this.sprinting ? 1 : 0, 4, dt);
+    this.boat.power = this.save.rowSpeed * (1 + this.sprintK);
     const fwd = resting ? 0 : inp.moveY;
     const turn = resting ? 0 : inp.moveX;
     this.boat.update(dt, t, fwd, turn, !resting, this.water);
@@ -1535,8 +1598,8 @@ export class Game {
   }
 
   /** The closest friend in reach, and whether they've got a bottle up. */
-  private nearestFriend(): { name: string; at: THREE.Vector3; raised: boolean } | null {
-    let best: { name: string; at: THREE.Vector3; raised: boolean } | null = null;
+  private nearestFriend(): { id: string; name: string; at: THREE.Vector3; raised: boolean } | null {
+    let best: { id: string; name: string; at: THREE.Vector3; raised: boolean } | null = null;
     let bd = Infinity;
     const me = this.fisher.root.getWorldPosition(new THREE.Vector3());
     for (const p of this.net.players.values()) {
@@ -1547,7 +1610,7 @@ export class Game {
       const d = at.distanceTo(me);
       if (d < bd && d < this.cheersReach(this.seated || p.state.ib || p.state.ride !== '')) {
         bd = d;
-        best = { name: p.name, at, raised: p.state.ch };
+        best = { id: p.id, name: p.name, at, raised: p.state.ch };
       }
     }
     return best;
@@ -1562,9 +1625,9 @@ export class Game {
   private withSocial(prompt: string | null): string | null {
     const parts: string[] = prompt ? [prompt] : [];
     const friend = this.nearestFriend();
-    if (friend && this.cheersT <= 0) {
+    if (friend && this.cheersT <= 0 && friend.raised) {
       const name = friend.name.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-      parts.push(friend.raised ? `<kbd>C</kbd> ${name} wants to cheers!` : `<kbd>C</kbd> cheers with ${name}`);
+      parts.push(`${this.input.usingPad ? '<kbd>Up</kbd>' : '<kbd>C</kbd>'} ${name} wants to cheers!`);
     }
     if (this.pet.exists && this.patT <= 0 && !this.gunOut && this.canPat() && (this.seated ? !this.patHintBoat : !this.patted)) {
       parts.push(`<kbd>P</kbd> pat the ${this.pet.name}`);
@@ -1710,6 +1773,27 @@ export class Game {
     // The bullet goes where the sights were. The kick comes after.
     const dir = this.shotDir();
     const hit = this.hunt.fire(this.camera.position, dir, spec.reach, spec.spread);
+    if (!hit && dir.y < -0.02) {
+      const fishHit = this.swimmers.fire(this.camera.position, dir, Math.min(spec.reach, 70), spec.spread);
+      const t = -this.camera.position.y / dir.y;
+      if (t > 0 && t < spec.reach) {
+        const x = this.camera.position.x + dir.x * t;
+        const z = this.camera.position.z + dir.z * t;
+        if (groundY(x, z) < -0.1) {
+          this.water.splash(x, z, kind === 'shotgun' ? 1.1 : 0.5, kind === 'shotgun' ? 0.12 : 0.18);
+          this.audio.splash(0.2);
+        }
+      }
+      if (fishHit) {
+        this.water.splash(fishHit.x, fishHit.z, 0.7, 0.2);
+        // If it was the one coming to the float, another will have to come instead.
+        if (this.fishing.preset === fishHit.catch && this.fishing.presetSize === fishHit.size) {
+          this.fishing.preset = null;
+          this.fishing.presetSize = 0;
+        }
+        this.shotFish(fishHit.catch, fishHit.size);
+      }
+    }
     this.ammo[kind] -= 1;
     this.shotsFired += 1;
     this.recoil = 1;
@@ -1721,14 +1805,46 @@ export class Game {
     if (this.ammo[kind] === 0) this.startReload();
     this.showSights();
     if (hit) {
-      this.save.birds[hit.name] = (this.save.birds[hit.name] ?? 0) + hit.count;
+      let fresh: string | null = null;
+      for (const h of hit.hits) {
+        this.save.birds[h.kind.name] = (this.save.birds[h.kind.name] ?? 0) + 1;
+        const e = this.save.birdLog[h.kind.id];
+        if (!e) {
+          this.save.birdLog[h.kind.id] = { count: 1, longest: h.distance, firstHour: this.hour, neon: h.neon ? 1 : 0 };
+          fresh = h.kind.name;
+        } else {
+          e.count += 1;
+          e.longest = Math.max(e.longest, h.distance);
+          if (h.neon) e.neon = (e.neon ?? 0) + 1;
+        }
+      }
       const best = hit.distance > this.save.bestShot;
       if (best) this.save.bestShot = hit.distance;
       this.writeSave();
       const total = Object.values(this.save.birds).reduce((a, b) => a + b, 0);
-      const what = hit.count > 1 ? `${hit.count} birds with one shot` : `${hit.name}, ${Math.round(hit.distance)} m`;
-      this.ui.toast(`${what}${best ? ', your longest yet' : ''}. ${total} in all.`, 3.2);
+      const top = hit.hits.reduce((a, b) => (TIERS.indexOf(b.kind.tier) > TIERS.indexOf(a.kind.tier) ? b : a));
+      const rare = TIERS.indexOf(top.kind.tier) >= 2 ? `${TIER_LABEL[top.kind.tier]}! ` : '';
+      const glowing = hit.hits.some((x) => x.neon) ? 'A glowing ' : '';
+      const what = hit.count > 1 ? `${hit.count} birds with one shot` : `${glowing}${glowing ? hit.name.toLowerCase() : hit.name}, ${Math.round(hit.distance)} m`;
+      const note = fresh ? `, and a new page in the journal` : best ? ', your longest yet' : '';
+      this.ui.toast(`${rare}${what}${note}. ${total} in all.`, 3.6);
+      if (fresh) this.audio.firstOfKind();
     }
+  }
+
+  /** A fish brought up by a shot goes in the journal like any other catch. */
+  private shotFish(s: Species, size: number) {
+    const j = this.save.journal;
+    const first = !j[s.id];
+    if (first) j[s.id] = { count: 0, firstHour: this.hour };
+    const record = !first && size > (j[s.id].biggest ?? 0);
+    j[s.id].count += 1;
+    j[s.id].biggest = Math.max(j[s.id].biggest ?? 0, size);
+    if (s.neon) j[s.id].neon = (j[s.id].neon ?? 0) + 1;
+    this.writeSave();
+    if (first) this.audio.firstOfKind();
+    const len = size >= 1 ? `${size.toFixed(1)} m` : `${Math.round(size * 100)} cm`;
+    this.ui.toast(`${s.neon ? 'A glowing ' : 'A '}${s.name.toLowerCase()}, ${len}${first ? ', and a new page in the journal' : record ? ', your biggest yet' : ''}.`, 3.4);
   }
 
   private get canHoldGun(): boolean {
@@ -1762,7 +1878,7 @@ export class Game {
         this.showSights();
       }
     }
-    const aiming = this.gunOut && this.canHoldGun && !menu && inp.aim;
+    const aiming = this.gunOut && this.canHoldGun && !menu && inp.aim && this.reloadT <= 0;
     this.aimK = damp(this.aimK, aiming ? 1 : 0, 9, dt);
     if (this.aimK < 0.002) this.aimK = 0;
     this.ui.scope(this.gunOut && GUNS[this.gunKind].scope && this.aimK > 0.6);
@@ -1780,6 +1896,21 @@ export class Game {
 
   private get canRelax(): boolean {
     return this.mode === 'walk' || this.mode === 'sit' || this.mode === 'row' || this.mode === 'ride' || (this.mode === 'transition' && this.relax);
+  }
+
+  /** The energy bar: refills unless rowing hard, faster at rest, fastest sitting back or with a beer. */
+  private updateEnergy(dt: number) {
+    if (!this.sprinting) {
+      const pulling = this.mode === 'row' && Math.abs(this.input.moveY) + Math.abs(this.input.moveX) > 0.05;
+      const rate = this.relax || this.beer.active ? 1 / 7 : pulling ? 1 / 40 : 1 / 16;
+      this.energy = Math.min(1, this.energy + dt * rate);
+    }
+    if (this.winded && this.energy >= 0.3) this.winded = false;
+    // Shown in the boat while it matters, then it fades away once full.
+    const show = this.mode === 'row' && !this.gunOut && (this.energy < 0.999 || this.sprinting);
+    this.energyShow = show ? 2 : Math.max(0, this.energyShow - dt);
+    this.ui.energy(this.energyShow > 0 && this.mode === 'row' && !this.gunOut ? this.energy : null, this.winded, this.relax || this.beer.active);
+    this.sprinting = false;
   }
 
   private updateRelax(dt: number, menu: boolean) {
@@ -1940,7 +2071,7 @@ export class Game {
       fov = 42;
       sideOffset = 0.9;
       // Settles in behind the boat on a long turn.
-      if (!looked && !this.fishing.active && Math.abs(this.boat.turnRate) > 0.02) {
+      if (!looked && !this.fishing.active && !this.relax && Math.abs(this.boat.turnRate) > 0.02) {
         this.yaw += wrapAngle(this.boat.heading - this.yaw) * (1 - Math.exp(-dt * 1.5));
       }
     } else if (this.mode === 'sit') {
@@ -2038,7 +2169,11 @@ export class Game {
       const k = this.relaxK;
       const e = k * k * k * (k * (k * 6 - 15) + 10);
       // While it settles, the eyes come up to the horizon, unless you look somewhere yourself.
-      if (this.relax && k < 1 && !looked) this.pitch = damp(this.pitch, 0.06, 1.4, dt);
+      if (this.relax && k < 1 && !looked) {
+        this.pitch = damp(this.pitch, 0.06, 1.4, dt);
+        // And round to the way the fisher is facing, so you look out of your own eyes, not over your shoulder.
+        this.yaw += wrapAngle(this.facingYaw() - this.yaw) * (1 - Math.exp(-dt * 2.4));
+      }
       const cpR = Math.cos(this.pitch);
       const look = new THREE.Vector3(-Math.sin(this.yaw) * cpR, -Math.sin(this.pitch), -Math.cos(this.yaw) * cpR);
       const eye = this.eyePos(this.eyeTmp);
@@ -2249,9 +2384,11 @@ export class Game {
 
     if (!warm && this.mode !== 'title') this.updateGun(dt, menu);
     if (!warm && this.mode !== 'title') this.updateRelax(dt, menu);
+    if (!warm && this.mode !== 'title') this.updateEnergy(dt);
     if (!warm) this.updateSocial(dt, menu);
     if (!warm) this.fireworks.update(dt, this.camera, this.pipe.h);
     if (!warm && this.mode !== 'title') this.swimmers.update(dt, t, this.fisher.root.getWorldPosition(this.seatTmp), this.hour, this.water, this.fishing);
+    this.hunt.hour = this.hour;
     if (!warm) this.hunt.update(dt, t, this.fisher.root.getWorldPosition(this.petTmp2), this.water);
     const pose = this.buildPose();
     this.lastPose = pose;
@@ -2411,6 +2548,7 @@ export class Game {
       air: this.airborne,
       gun: this.gunOut || gunView,
       gunKind: shownGun,
+      reload: this.gunOut && this.reloadT > 0 ? 1 - this.reloadT / GUNS[this.gunKind].reload : 0,
       lounge: this.loungeK,
       recoil: this.recoil,
       pat: this.patK,

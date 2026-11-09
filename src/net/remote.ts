@@ -81,12 +81,31 @@ export class RemotePlayer {
     late.add(this.line);
     this.tag = document.createElement('div');
     this.tag.className = 'nameTag';
-    this.tag.textContent = name;
+    this.tagName = document.createElement('span');
+    this.tagName.className = 'tagName';
+    this.tagName.textContent = name;
+    this.cheersHint = document.createElement('span');
+    this.cheersHint.className = 'cheersHint';
+    this.tag.append(this.tagName, this.cheersHint);
     uiRoot.appendChild(this.tag);
   }
 
+  private tagName: HTMLSpanElement;
+  private cheersHint: HTMLSpanElement;
+  private cheersState = '';
+
   setName(name: string) {
-    if (this.tag.textContent !== name) this.tag.textContent = name;
+    if (this.tagName.textContent !== name) this.tagName.textContent = name;
+  }
+
+  /** A small cheers under their name when they're in reach, livelier when their bottle is already up. */
+  setCheers(state: 'none' | 'near' | 'raised', key: string) {
+    const want = `${state}|${key}`;
+    if (want === this.cheersState) return;
+    this.cheersState = want;
+    this.tag.classList.toggle('near', state === 'near');
+    this.tag.classList.toggle('raised', state === 'raised');
+    if (state !== 'none') this.cheersHint.innerHTML = `${key} ${state === 'raised' ? 'cheers back' : 'cheers'}`;
   }
 
   setLook(look: CharacterLook) {
@@ -184,6 +203,7 @@ export class RemotePlayer {
       air: s.air,
       gun: s.gun,
       gunKind: s.gk,
+      reload: s.rl,
       lounge: s.lg,
       recoil: this.recoil,
       pat: this.patK,
@@ -223,12 +243,12 @@ export class RemotePlayer {
     }
 
     const wantFish = (s.fs === 'reel' || s.fs === 'landed' || s.fs === 'released') && !!s.fish;
-    const wantId = s.fn ? `${s.fish}~` : s.fish;
+    const wantId = `${s.fn ? `${s.fish}~` : s.fish}@${s.fl.toFixed(2)}`;
     if (wantFish && this.modelId !== wantId) {
       this.dropModel();
       const sp = SPECIES.find((x) => x.id === s.fish);
       if (sp) {
-        this.model = fishModel(s.fn ? neonOf(sp) : sp);
+        this.model = fishModel(s.fn ? neonOf(sp) : sp, s.fl > 0.02 ? s.fl : sp.length);
         this.modelId = wantId;
         this.scene.add(this.model);
       }

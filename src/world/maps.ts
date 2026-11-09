@@ -252,7 +252,8 @@ export function switchMap(id: MapId) {
   } catch {
     /* Without storage, the link below still carries it. */
   }
-  location.hash = `map=${id}`;
+  // Replaced, not added: an extra history entry would stop Quit from closing the window.
+  history.replaceState(null, '', `#map=${id}`);
   location.reload();
 }
 

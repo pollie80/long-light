@@ -7,7 +7,7 @@ import { GUN_ORDER, GunKind } from '../game/guns';
 import { MAP, MapId } from '../world/maps';
 
 /** Bumped whenever the messages change, so an old copy gets a clear message instead of odd behaviour. */
-export const PROTOCOL = 7;
+export const PROTOCOL = 8;
 export const MAX_PLAYERS = 8;
 export const PEER_PREFIX = 'long-light-cove-';
 export const HOSTED_URL = 'https://pollie80.github.io/long-light/';
@@ -19,6 +19,8 @@ export interface NetState {
   /** A gun out, which one, and how many times it has been fired. */
   gun: boolean;
   gk: GunKind;
+  /** How far through a reload, 0 when not. */
+  rl: number;
   shots: number;
   /** Leant back, 0 to 1. */
   lg: number;
@@ -41,6 +43,8 @@ export interface NetState {
   rx: number; ry: number; rz: number;
   bend: number; spin: number;
   fish: string;
+  /** How long it is, in metres, so friends see the same fish. */
+  fl: number;
   /** Beer. */
   bOut: number; bLift: number;
 }
@@ -88,6 +92,7 @@ export function cleanState(v: unknown): NetState | null {
     air: o.air === true,
     gun: o.gun === true,
     gk: GUN_ORDER.includes(o.gk as GunKind) ? (o.gk as GunKind) : 'pistol',
+    rl: Math.min(1, Math.max(0, num(o.rl, 1))),
     lg: Math.min(1, Math.max(0, num(o.lg, 1))),
     pat: o.pat === true,
     ch: o.ch === true,
@@ -103,6 +108,7 @@ export function cleanState(v: unknown): NetState | null {
     rx: num(o.rx, 1), ry: num(o.ry, 1, 1), rz: num(o.rz, 1),
     bend: num(o.bend, 2), spin: num(o.spin, 1e6),
     fish: typeof o.fish === 'string' ? o.fish.slice(0, 24) : '',
+    fl: Math.min(4, Math.max(0, num(o.fl, 4))),
     bOut: Math.min(1, Math.max(0, num(o.bOut, 1))), bLift: Math.min(1, Math.max(0, num(o.bLift, 1))),
   };
 }

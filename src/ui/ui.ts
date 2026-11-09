@@ -3,6 +3,8 @@ import './styles.css';
 import { clockLabel, sunDir } from '../core/time';
 import { SPECIES, Species, TIER_LABEL, TIERS, Tier, BANDS, BandId, bandAt, neonOf, placeSpecies, speciesIn, weightKg } from '../game/fishdata';
 import { paintFish } from '../game/fishart';
+import { BirdEntry, BirdKind, birdsOf, neonBird } from '../game/birddata';
+import { paintBird } from '../game/birdart';
 import { BOAT_PANEL, LOOK_PANEL, PET_PANEL, Wardrobe, WardrobeHooks, WardrobePanel } from './wardrobe';
 import { ICON } from './icons';
 import { MAP, MAP_ORDER, MapId, MAPS } from '../world/maps';
@@ -33,6 +35,10 @@ export interface MenuHooks {
   resume(): void;
   journal(): void;
   resetJournal(): void;
+  /** The birds brought down, by kind. */
+  birdLog(): Record<string, BirdEntry>;
+  setWeather(v: boolean): void;
+  getWeather(): boolean;
   quit(): void;
   savePainting(): void;
   setHour(h: number): void;
@@ -122,6 +128,9 @@ export class UI {
   private focusI = 0;
   private padPrev: boolean[] = [];
   private jPlace: MapId = MAP.id;
+  /** Which half of the book is open. */
+  private jKind: 'fish' | 'birds' = 'fish';
+  private birdCache = new Map<string, HTMLCanvasElement>();
   private jBand: BandId = 'any';
   private jData: Journal | null = null;
   private resetArmed = false;
@@ -177,11 +186,11 @@ export class UI {
       </div>
       <div id="veil" class="hidden"></div>
       <div id="journal" class="paper hidden">
-        <header><h2>${ICON.book} Journal</h2><span id="jCount"></span></header>
+        <header><h2>${ICON.book} Journal</h2><div id="jKinds"><button data-k="fish" class="on">${ICON.fish}<span>Fish</span></button><button data-k="birds">${ICON.bird}<span>Birds</span></button></div><span id="jCount"></span></header>
         <nav id="jPlaces" aria-label="Place"></nav>
         <nav id="jBands" aria-label="Time of day"></nav>
         <div id="jgrid"></div>
-        <div id="jfoot"><div id="jDetail"></div><button class="iconBtn danger" id="jReset" title="Forget every fish caught">${ICON.reset}<span id="jResetT">Reset</span></button><button class="iconBtn" id="jClose">${ICON.close}<span>Close</span></button></div>
+        <div id="jfoot"><div id="jDetail"></div><button class="iconBtn danger" id="jReset" title="Forget every fish and bird">${ICON.reset}<span id="jResetT">Reset</span></button><button class="iconBtn" id="jClose">${ICON.close}<span>Close</span></button></div>
       </div>
       <div id="rest" class="paper hidden">
         <h3>${ICON.bed} Rest until</h3>
@@ -193,6 +202,7 @@ export class UI {
       </div>
       <div id="fps" class="gone"></div>
       <div id="scope" class="gone"></div>
+      <div id="energy" class="gone"><span class="eIc">${ICON.boat}</span><div class="eBar"><i></i></div><b id="eNote"></b></div>
       <div id="sights" class="gone"><i></i><div id="rounds"></div><div id="gunName"></div></div>
       <div id="places" class="paper hidden">
         <h2>${ICON.map} Choose a place</h2>
@@ -239,6 +249,7 @@ export class UI {
           <h4>World</h4>
           <div class="set">${ICON.sun}<label for="timeTrack">Time of day</label><input id="timeTrack" type="range" min="0" max="24" step="0.05"><b id="mTimeV"></b></div>
           <div class="set switch" id="mClock" role="switch" tabindex="0">${ICON.clock}<label>Sun moves by itself</label><span class="sw"><i></i></span></div>
+          <div class="set switch" id="mWeather" role="switch" tabindex="0">${ICON.cloud}<label>Changing weather</label><span class="sw"><i></i></span></div>
           <h4>Sound</h4>
           <div class="set">${ICON.music}<label for="mMusic">Music</label><input id="mMusic" type="range" min="0" max="100" step="1"><b id="mMusicV"></b></div>
           <div class="set">${ICON.speaker}<label for="mSfx">Sounds</label><input id="mSfx" type="range" min="0" max="100" step="1"><b id="mSfxV"></b></div>
@@ -378,13 +389,18 @@ export class UI {
       setTimeout(() => (el('fCopyT').textContent = 'Copy'), 2200);
     };
     el<HTMLInputElement>('fLink').onclick = (e) => (e.target as HTMLInputElement).select();
-    for (const id of ['mClock', 'mAway']) {
+    for (const id of ['mClock', 'mAway', 'mWeather']) {
       el(id).onkeydown = (e) => {
         if (e.code === 'Enter' || e.code === 'Space') el(id).click();
       };
     }
     el('mAway').onclick = () => {
       h.setMuteAway(!h.getMuteAway());
+      h.sound('tick');
+      this.refreshMenu();
+    };
+    el('mWeather').onclick = () => {
+      h.setWeather(!h.getWeather());
       h.sound('tick');
       this.refreshMenu();
     };
@@ -538,7 +554,86 @@ export class UI {
     this.jBand = bandAt(hour);
   }
 
+  private birdPainting(b: BirdKind, silhouette: boolean, w: number, h: number, neon = false): HTMLCanvasElement {
+    const key = `${b.id}|${silhouette}|${w}|${neon}`;
+    let c = this.birdCache.get(key);
+    if (!c) {
+      c = paintBird(neon ? neonBird(b) : b, w, h, silhouette, neon);
+      this.birdCache.set(key, c);
+    }
+    return c;
+  }
+
+  private fillBirds() {
+    const log = this.hooks.birdLog();
+    const places = el('jPlaces');
+    places.innerHTML = '';
+    for (const id of MAP_ORDER) {
+      const birds = birdsOf(id);
+      const b = document.createElement('button');
+      b.className = id === this.jPlace ? 'on' : '';
+      b.innerHTML = `${ICON.map}<span></span><i>${birds.filter((x) => log[x.id]).length}/${birds.length}</i>`;
+      b.querySelector('span')!.textContent = MAPS[id].name;
+      b.onclick = () => {
+        this.jPlace = id;
+        this.hooks.sound('tick');
+        this.fillJournal(this.jData ?? {});
+      };
+      places.appendChild(b);
+    }
+    el('jBands').classList.add('gone');
+    const all = birdsOf(this.jPlace);
+    el('jCount').textContent = `${all.filter((b) => log[b.id]).length} of ${all.length} brought down here`;
+    const detail = el('jDetail');
+    const note = 'Birds of this place, from the everyday to the almost never seen. Some only fly after dark.';
+    detail.textContent = note;
+    const grid = el('jgrid');
+    grid.innerHTML = '';
+    for (const bird of all) {
+      const e = log[bird.id];
+      const slot = document.createElement('div');
+      slot.className = `jslot tier-${bird.tier}`;
+      const stars = document.createElement('i');
+      stars.className = 'jstars';
+      stars.textContent = tierStars(bird.tier);
+      slot.appendChild(stars);
+      const src = this.birdPainting(bird, !e, 372, 198, !!e?.neon);
+      const c = document.createElement('canvas');
+      c.width = src.width;
+      c.height = src.height;
+      c.getContext('2d')!.drawImage(src, 0, 0);
+      slot.appendChild(c);
+      const name = document.createElement('b');
+      name.textContent = e ? bird.name : '...';
+      slot.appendChild(name);
+      const em = document.createElement('em');
+      em.textContent = e ? `${e.count > 1 ? `${e.count} brought down` : 'one brought down'}${e.longest > 0 ? `, ${Math.round(e.longest)} m` : ''}${e.neon ? `, ${e.neon} neon` : ''}` : '';
+      slot.appendChild(em);
+      slot.onmouseenter = () => {
+        detail.textContent = e ? `${bird.name}. ${TIER_LABEL[bird.tier]}.${e.longest > 0 ? ` Longest shot ${Math.round(e.longest)} m.` : ''} ${bird.verse}` : `Not yet. ${TIER_LABEL[bird.tier]}. ${bird.hint}`;
+      };
+      slot.onmouseleave = () => {
+        detail.textContent = note;
+      };
+      grid.appendChild(slot);
+    }
+  }
+
   private fillJournal(j: Journal) {
+    el('jKinds').querySelectorAll<HTMLButtonElement>('button').forEach((b) => {
+      b.classList.toggle('on', b.dataset.k === this.jKind);
+      b.onclick = () => {
+        if (this.jKind === b.dataset.k) return;
+        this.jKind = b.dataset.k as 'fish' | 'birds';
+        this.hooks.sound('tick');
+        this.fillJournal(j);
+      };
+    });
+    if (this.jKind === 'birds') {
+      this.fillBirds();
+      return;
+    }
+    el('jBands').classList.remove('gone');
     // Places.
     const places = el('jPlaces');
     places.innerHTML = '';
@@ -625,7 +720,7 @@ export class UI {
         if (!this.resetArmed) {
           this.resetArmed = true;
           el('jReset').classList.add('armed');
-          el('jResetT').textContent = 'Erase every fish? Press again';
+          el('jResetT').textContent = 'Erase every fish and bird? Press again';
           window.clearTimeout(this.resetTimer);
           this.resetTimer = window.setTimeout(() => {
             this.resetArmed = false;
@@ -680,6 +775,8 @@ export class UI {
     el('mRowV').textContent = `${Math.round(row * 100)}%`;
     el('mAway').classList.toggle('on', h.getMuteAway());
     el('mAway').setAttribute('aria-checked', String(h.getMuteAway()));
+    el('mWeather').classList.toggle('on', h.getWeather());
+    el('mWeather').setAttribute('aria-checked', String(h.getWeather()));
     el('gCap').querySelectorAll<HTMLButtonElement>('button').forEach((b) => b.classList.toggle('on', Number(b.dataset.cap) === h.getFpsCap()));
     const res = h.getResolution();
     el<HTMLInputElement>('gRes').value = String(Math.round(res * 100));
@@ -718,6 +815,17 @@ export class UI {
     rounds.querySelectorAll('b').forEach((b, i) => b.classList.toggle('spent', i >= v.rounds));
     el('gunName').textContent = v.reloading ? `${v.name}, reloading` : v.name;
     box.classList.toggle('reloading', v.reloading);
+  }
+
+  /** How much rowing hard is left in you, or null to hide it. */
+  energy(v: number | null, winded = false, resting = false) {
+    const box = el('energy');
+    box.classList.toggle('gone', v === null);
+    if (v === null) return;
+    (box.querySelector('.eBar i') as HTMLElement).style.transform = `scaleX(${Math.max(0, Math.min(1, v)).toFixed(3)})`;
+    box.classList.toggle('winded', winded);
+    box.classList.toggle('resting', resting && v < 1);
+    el('eNote').textContent = winded ? 'catch your breath' : resting && v < 1 ? 'resting' : '';
   }
 
   /** Looking through the rifle's scope. */
@@ -821,12 +929,14 @@ export class UI {
     };
     const step = (edge(5) ? 1 : 0) - (edge(4) ? 1 : 0);
     const place = (edge(15) ? 1 : 0) - (edge(14) ? 1 : 0);
-    if (step) {
+    const kind = edge(3);
+    if (kind) this.jKind = this.jKind === 'fish' ? 'birds' : 'fish';
+    if (step && this.jKind === 'fish') {
       const i = BANDS.findIndex((b) => b.id === this.jBand);
       this.jBand = BANDS[(i + step + BANDS.length) % BANDS.length].id;
     }
     if (place) this.jPlace = MAP_ORDER[(MAP_ORDER.indexOf(this.jPlace) + place + MAP_ORDER.length) % MAP_ORDER.length];
-    if (step || place) {
+    if (step || place || kind) {
       this.hooks.sound('tick');
       this.fillJournal(this.jData);
     }

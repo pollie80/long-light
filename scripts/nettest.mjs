@@ -114,7 +114,7 @@ check('time matches', Math.abs(h1.time - f1.time) < 5 && Math.abs(h1.hour - f1.h
 check('figures appear', await until(host, () => __ll.game.remotes.size === 1) && await until(friend, () => __ll.game.remotes.size === 1));
 check('names stay plain text', await host.evaluate(() => {
   const tag = document.querySelector('.nameTag');
-  return !!tag && !tag.querySelector('*') && tag.textContent.includes('<img') && !document.querySelector('#fList img');
+  return !!tag && !tag.querySelector('img') && tag.querySelector('.tagName').textContent.includes('<img') && !document.querySelector('#fList img');
 }));
 check('joined message shows', await until(host, () => document.querySelector('#toast').textContent.includes('joined')));
 

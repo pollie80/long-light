@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { Builder, solid, TRS } from '../world/builder';
 import { L, paintedMaterial } from '../render/shared';
-import { buildGun, GunKind, GUNS } from '../game/guns';
+import { buildGunParts, GunKind, GUNS } from '../game/guns';
 import { damp } from '../core/noise';
 import { CharacterLook, figureKey, DEFAULT_LOOK } from './look';
 import { buildBody } from './outfit';
@@ -30,6 +30,7 @@ export interface PoseInput {
   air?: boolean; // off the ground, jumping
   gun?: boolean; // a gun up, pointing along rodDir
   gunKind?: GunKind; // which one: a pistol is held out in both hands, the others to the shoulder
+  reload?: number; // 0 not reloading, else how far through it, 0 to 1
   recoil?: number; // 1 the instant it fires, falling to 0
   pat?: number; // 0 upright, 1 crouched over the pet with a hand on it
   patAt?: THREE.Vector3; // the top of the pet's head, in world space
@@ -70,6 +71,12 @@ export class Fisher {
   gun = new THREE.Group();
   gunKind: GunKind = 'pistol';
   private gunMesh: THREE.Mesh | null = null;
+  /** The parts that move on a reload, the magazine, and whatever the hand brings to fill it. */
+  private gunMove = new THREE.Group();
+  private gunMoving: THREE.Mesh | null = null;
+  private gunPivot = new THREE.Vector3();
+  private gunMag: THREE.Mesh | null = null;
+  private gunAmmo: THREE.Mesh | null = null;
   private gunKey = '';
   private rodKey = '';
   /** Seen from inside the head: the head is left out of this player's own view, but not its reflection. */
@@ -190,12 +197,146 @@ export class Fisher {
     const key = `${kind}:${this.look.gunFinish}`;
     if (key === this.gunKey) return;
     this.gunKey = key;
-    if (this.gunMesh) {
-      this.gun.remove(this.gunMesh);
-      this.gunMesh.geometry.dispose();
+    for (const m of [this.gunMesh, this.gunMoving, this.gunMag, this.gunAmmo]) {
+      if (!m) continue;
+      m.parent?.remove(m);
+      m.geometry.dispose();
     }
-    this.gunMesh = solid(buildGun(kind, this.look.gunFinish), this.gunMat, false);
+    const parts = buildGunParts(kind, this.look.gunFinish);
+    this.gunMesh = solid(parts.main, this.gunMat, false);
     this.gun.add(this.gunMesh);
+    this.gunPivot.copy(parts.pivot);
+    this.gunMove.position.copy(parts.pivot);
+    this.gunMove.rotation.set(0, 0, 0);
+    if (!this.gunMove.parent) this.gun.add(this.gunMove);
+    this.gunMoving = solid(parts.moving, this.gunMat, false);
+    this.gunMove.add(this.gunMoving);
+    this.gunMag = parts.mag ? solid(parts.mag, this.gunMat, false) : null;
+    if (this.gunMag) this.gun.add(this.gunMag);
+    this.gunAmmo = solid(parts.ammo, this.gunMat, false);
+    this.gunAmmo.visible = false;
+    this.gun.add(this.gunAmmo);
+  }
+
+  /**
+   * Holding a gun up, and reloading it. Each gun has its own routine: the pistol drops its magazine, takes a fresh
+   * one from the belt and racks the slide; the rifle's bolt goes up and back, five rounds are pressed in and it goes
+   * home again; the shotgun breaks open on its hinge for two shells and snaps shut.
+   */
+  private holdGun(pose: PoseInput, dt: number, fwd: THREE.Vector3, right: THREE.Vector3, worldUp: THREE.Vector3) {
+    this.gunDirSmooth.lerp(pose.rodDir!, 1 - Math.exp(-dt * 24)).normalize();
+    const kind = this.gunKind;
+    const spec = GUNS[kind];
+    const kick = pose.recoil ?? 0;
+    const p = pose.reload ?? 0;
+    const on = p > 0 && p < 1;
+    const ss = (a: number, b: number, x: number) => {
+      const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+      return t * t * (3 - 2 * t);
+    };
+    // Lowered and brought in towards the chest for the work, then back up.
+    const low = on ? ss(0, 0.1, p) * (1 - ss(0.88, 1, p)) : 0;
+    const lowDir = new THREE.Vector3().copy(fwd).multiplyScalar(0.75).addScaledVector(worldUp, -0.55).addScaledVector(right, -0.22);
+    const aim = this.gunDirSmooth.clone().lerp(lowDir, low * 0.85).normalize();
+    const up = aim.clone().addScaledVector(worldUp, kick * (spec.long ? 0.22 : 0.42)).normalize();
+    let grip: THREE.Vector3;
+    let leftRest: THREE.Vector3;
+    if (spec.long) {
+      // Butt in the pocket of the right shoulder, cheek down on the stock, the left hand out along the fore-end.
+      grip = this.shoulderWorld(1, new THREE.Vector3()).addScaledVector(right, -0.06 - low * 0.05).addScaledVector(worldUp, 0.03 - low * 0.12).addScaledVector(up, 0.3 - kick * 0.08);
+      leftRest = grip.clone().addScaledVector(up, kind === 'rifle' ? 0.27 : 0.22).addScaledVector(worldUp, -0.03);
+    } else {
+      // Held out in both hands, at the height of the eyes. It's heavy: the shot throws it well up and back.
+      const middle = this.shoulderWorld(1, new THREE.Vector3()).lerp(this.shoulderWorld(0, new THREE.Vector3()), 0.42);
+      grip = middle.addScaledVector(aim, 0.56 - kick * 0.09 - low * 0.18).addScaledVector(worldUp, 0.05 - low * 0.12);
+      leftRest = grip.clone().addScaledVector(right, -0.035).addScaledVector(worldUp, -0.05).addScaledVector(aim, 0.012);
+    }
+    this.gun.position.copy(grip);
+    this.gun.quaternion.setFromUnitVectors(GUN_AXIS, up);
+    this.gun.updateMatrixWorld(true);
+    const local = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z).applyMatrix4(this.gun.matrixWorld);
+    const rightRest = grip.clone().addScaledVector(worldUp, -0.04);
+    let rightT = rightRest;
+    let leftT = leftRest;
+    let ammoHand = -1;
+    this.gunMove.position.copy(this.gunPivot);
+    this.gunMove.rotation.set(0, 0, 0);
+    if (this.gunMag) {
+      this.gunMag.position.set(0, 0, 0);
+      this.gunMag.visible = true;
+    }
+    const between = (a: THREE.Vector3, b: THREE.Vector3, t0: number, t1: number) => a.clone().lerp(b, ss(t0, t1, p));
+    if (on && kind === 'pistol') {
+      const belt = new THREE.Vector3(-0.2, 0.0, -0.1).applyMatrix4(this.hips.matrixWorld);
+      const under = local(0, -0.2, 0.04);
+      const seat = local(0, -0.13, 0.03);
+      const slide = 0.05 * (ss(0.6, 0.66, p) - ss(0.66, 0.69, p));
+      const slideTop = local(-0.03, 0.1, 0.02 + slide);
+      // The empty one slides out and drops; the fresh one comes up from the belt and in.
+      const out = p < 0.36 ? ss(0.02, 0.12, p) : 1 - ss(0.36, 0.41, p);
+      if (this.gunMag) {
+        this.gunMag.position.set(0, -0.16 * out, 0.035 * out);
+        this.gunMag.visible = p < 0.14 || p >= 0.36;
+      }
+      if (p < 0.22) leftT = between(leftRest, belt, 0.1, 0.22);
+      else if (p < 0.36) leftT = between(belt, under, 0.27, 0.36);
+      else if (p < 0.5) leftT = between(under, seat, 0.36, 0.41).lerp(slideTop, ss(0.42, 0.5, p));
+      else if (p < 0.72) leftT = slideTop;
+      else leftT = between(slideTop, leftRest, 0.72, 0.88);
+      if (p >= 0.2 && p < 0.36) ammoHand = 0;
+      this.gunMove.position.set(0, 0, slide);
+    } else if (on && kind === 'rifle') {
+      const turn = 1.1 * (ss(0.02, 0.07, p) - ss(0.88, 0.92, p));
+      const back = 0.07 * (ss(0.07, 0.13, p) - ss(0.84, 0.88, p));
+      this.gunMove.position.set(this.gunPivot.x, this.gunPivot.y, this.gunPivot.z + back);
+      this.gunMove.rotation.z = turn;
+      const knob = local(this.gunPivot.x + 0.066 * Math.cos(turn), this.gunPivot.y + 0.066 * Math.sin(turn), this.gunPivot.z + back);
+      const port = local(0.0, 0.07, -0.03);
+      // Five rounds, one press each.
+      let near = 1;
+      for (let i = 0; i < 5; i++) near = Math.min(near, Math.abs(p - (0.19 + i * 0.123)));
+      const press = 1 - ss(0, 0.045, near);
+      const pressing = port.clone().addScaledVector(worldUp, 0.05 * (1 - press));
+      if (p < 0.03) rightT = between(rightRest, knob, 0, 0.03);
+      else if (p < 0.14) rightT = knob;
+      else if (p < 0.18) rightT = between(knob, pressing, 0.14, 0.18);
+      else if (p < 0.78) rightT = pressing;
+      else if (p < 0.84) rightT = between(pressing, knob, 0.78, 0.84);
+      else if (p < 0.92) rightT = knob;
+      else rightT = between(knob, rightRest, 0.92, 1);
+      if (p >= 0.17 && p < 0.72) ammoHand = 1;
+    } else if (on && kind === 'shotgun') {
+      const open = ss(0, 0.1, p) - ss(0.8, 0.84, p);
+      const rot = -0.62 * open;
+      this.gunMove.rotation.x = rot;
+      // Points on the barrels, turned with them about the hinge.
+      const onBarrels = (x: number, y: number, z: number) => {
+        const v = new THREE.Vector3(x - this.gunPivot.x, y - this.gunPivot.y, z - this.gunPivot.z).applyAxisAngle(new THREE.Vector3(1, 0, 0), rot);
+        return local(v.x + this.gunPivot.x, v.y + this.gunPivot.y, v.z + this.gunPivot.z);
+      };
+      leftT = onBarrels(0, -0.02, -0.2);
+      const pocket = new THREE.Vector3(0.22, 0.0, -0.08).applyMatrix4(this.hips.matrixWorld);
+      const chamberR = onBarrels(0.0128, 0.03, -0.07).addScaledVector(worldUp, 0.03);
+      const chamberL = onBarrels(-0.0128, 0.03, -0.07).addScaledVector(worldUp, 0.03);
+      if (p < 0.2) rightT = between(rightRest, pocket, 0.1, 0.2);
+      else if (p < 0.36) rightT = between(pocket, chamberR, 0.24, 0.33);
+      else if (p < 0.48) rightT = between(chamberR, pocket, 0.36, 0.45);
+      else if (p < 0.56) rightT = between(pocket, chamberL, 0.48, 0.52);
+      else rightT = between(chamberL, rightRest, 0.56, 0.74);
+      if ((p >= 0.2 && p < 0.33) || (p >= 0.45 && p < 0.52)) ammoHand = 1;
+    }
+    this.reach(1, rightT, new THREE.Vector3().copy(right).multiplyScalar(spec.long ? 0.7 : 0.8).addScaledVector(worldUp, spec.long ? -0.8 : -0.7));
+    this.reach(0, leftT, new THREE.Vector3().copy(right).multiplyScalar(spec.long ? -0.4 : -0.8).addScaledVector(worldUp, spec.long ? -0.9 : -0.7));
+    // What the hand is carrying in.
+    if (this.gunAmmo) {
+      this.gunAmmo.visible = ammoHand >= 0;
+      if (ammoHand >= 0) {
+        this.upper[ammoHand].updateMatrixWorld(true);
+        const hand = new THREE.Vector3(0, -FO_LEN - 0.03, 0).applyMatrix4(this.fore[ammoHand].matrixWorld);
+        this.gunAmmo.position.copy(this.gun.worldToLocal(hand));
+      }
+    }
+    this.gunTip.copy(grip).addScaledVector(up, spec.length).addScaledVector(worldUp, spec.muzzleUp);
   }
 
   /** The rod's two colours, grip and blank, or a pattern along it. */
@@ -475,36 +616,8 @@ export class Fisher {
 
     this.gun.visible = !!pose.gun;
     this.rod.visible = !pose.gun;
-    if (pose.gun && pose.rodDir && longGun) {
-      // Butt in the pocket of the right shoulder, cheek down on the stock, the left hand out along the fore-end.
-      this.gunDirSmooth.lerp(pose.rodDir, 1 - Math.exp(-dt * 24)).normalize();
-      const aim = this.gunDirSmooth;
-      const kick = pose.recoil ?? 0;
-      const spec = GUNS[this.gunKind];
-      const up = new THREE.Vector3().copy(aim).addScaledVector(worldUp, kick * 0.22).normalize();
-      const grip = this.shoulderWorld(1, new THREE.Vector3()).addScaledVector(right, -0.06).addScaledVector(worldUp, 0.03).addScaledVector(up, 0.3 - kick * 0.08);
-      this.reach(1, grip.clone().addScaledVector(worldUp, -0.04), new THREE.Vector3().copy(right).multiplyScalar(0.7).addScaledVector(worldUp, -0.8));
-      const fore = grip.clone().addScaledVector(up, this.gunKind === 'rifle' ? 0.27 : 0.22).addScaledVector(worldUp, -0.03);
-      this.reach(0, fore, new THREE.Vector3().copy(right).multiplyScalar(-0.4).addScaledVector(worldUp, -0.9));
-      this.gun.position.copy(grip);
-      this.gun.quaternion.setFromUnitVectors(GUN_AXIS, up);
-      this.gunTip.copy(grip).addScaledVector(up, spec.length).addScaledVector(worldUp, spec.muzzleUp);
-    } else if (pose.gun && pose.rodDir) {
-      // Held out in both hands, at the height of the eyes. It's heavy: the shot throws it well up and back.
-      this.gunDirSmooth.lerp(pose.rodDir, 1 - Math.exp(-dt * 24)).normalize();
-      const aim = this.gunDirSmooth;
-      const kick = pose.recoil ?? 0;
-      const shoulderR = this.shoulderWorld(1, new THREE.Vector3());
-      const shoulderL = this.shoulderWorld(0, new THREE.Vector3());
-      const middle = shoulderR.clone().lerp(shoulderL, 0.42);
-      const grip = middle.addScaledVector(aim, 0.56 - kick * 0.09).addScaledVector(worldUp, 0.05);
-      const cup = grip.clone().addScaledVector(right, -0.035).addScaledVector(worldUp, -0.05).addScaledVector(aim, 0.012);
-      this.reach(1, grip.clone().addScaledVector(worldUp, -0.04), new THREE.Vector3().copy(right).multiplyScalar(0.8).addScaledVector(worldUp, -0.7));
-      this.reach(0, cup, new THREE.Vector3().copy(right).multiplyScalar(-0.8).addScaledVector(worldUp, -0.7));
-      this.gun.position.copy(grip);
-      const up = new THREE.Vector3().copy(aim).addScaledVector(worldUp, kick * 0.42).normalize();
-      this.gun.quaternion.setFromUnitVectors(GUN_AXIS, up);
-      this.gunTip.copy(grip).addScaledVector(up, 0.3).addScaledVector(worldUp, 0.066);
+    if (pose.gun && pose.rodDir) {
+      this.holdGun(pose, dt, fwd, right, worldUp);
     } else if (pose.mode === 'row' && !pose.fishing && pose.handleL && pose.handleR) {
       // The rod stows along the thwart while rowing.
       this.reach(0, pose.handleL, new THREE.Vector3().copy(right).multiplyScalar(-0.8).addScaledVector(worldUp, -0.6));

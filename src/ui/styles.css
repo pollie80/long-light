@@ -85,6 +85,15 @@ kbd { font-family: var(--serif); font-style: normal; font-weight: 500; font-size
 #journal h2 { font-weight: 500; font-size: clamp(26px, 3.8vh, 38px); margin: 0; }
 #journal header span { font-family: var(--hand); font-size: 24px; color: var(--ink-soft); }
 #jPlaces, #jBands { display: flex; gap: 6px; flex: none; margin-bottom: 6px; }
+#jBands.gone { display: none; }
+/* Fish or birds: two tabs by the title, like the place tabs but quieter. */
+#jKinds { display: flex; gap: 4px; margin: 0 auto 0 22px; align-self: center; }
+#jKinds button { display: flex; align-items: center; gap: 6px; font: 500 clamp(15px, 2vh, 19px) var(--serif); color: var(--ink); background: none; border: 1px solid rgba(42, 31, 28, 0.2); border-radius: 5px; padding: 3px 12px; cursor: pointer; }
+#jKinds button:hover { border-color: #9c3f24; }
+#jKinds button.on { background: rgba(42, 31, 28, 0.82); border-color: transparent; color: var(--light); }
+#jKinds .ic { width: 18px; height: 18px; }
+/* The header's handwriting style is for the count, not these labels. */
+#journal header #jKinds span { font: inherit; color: inherit; }
 #jPlaces button, #jBands button { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 6px; font: 500 clamp(15px, 2.1vh, 20px) var(--serif); color: var(--ink); background: rgba(255, 252, 240, 0.45); border: 1px solid rgba(42, 31, 28, 0.2); border-radius: 5px; padding: 5px 6px; cursor: pointer; white-space: nowrap; }
 #jPlaces button:hover, #jBands button:hover { border-color: #9c3f24; }
 #jPlaces button.on { background: #9c3f24; border-color: #9c3f24; color: var(--light); }
@@ -207,6 +216,20 @@ kbd { font-family: var(--serif); font-style: normal; font-weight: 500; font-size
   linear-gradient(180deg, #08080a 0 18%, transparent 18% 82%, #08080a 82%) center / 3px 100% no-repeat,
   linear-gradient(#08080a 0 0) center / 1px 100% no-repeat; }
 #cKick.record { color: #b8641c; }
+/* Rowing hard: a short bar in the bottom-right corner, only while it matters. */
+#energy { position: fixed; right: max(28px, 3vw); bottom: 6vh; display: grid; grid-template-columns: 22px 150px; align-items: center; column-gap: 8px; color: #fff6e0; pointer-events: none; transition: opacity 0.6s ease; }
+#energy .eIc .ic { width: 22px; height: 22px; filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.8)); }
+#energy .eBar { height: 8px; border-radius: 4px; background: rgba(20, 12, 10, 0.45); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(255, 246, 224, 0.35); overflow: hidden; }
+#energy .eBar i { display: block; height: 100%; background: linear-gradient(90deg, #e0a440, #f6d27a); transform-origin: left; transition: background 0.4s; }
+#energy.winded .eBar i { background: #c0563a; }
+#energy.resting .eBar i { background: linear-gradient(90deg, #6ab0c8, #b8e4f0); }
+#energy b { grid-column: 2; font: italic 500 15px var(--serif); text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85); margin-top: 3px; min-height: 18px; }
+/* A friend in reach: a quiet invitation by their name. */
+.nameTag .cheersHint { display: block; font: 500 15px var(--serif); font-style: normal; text-align: center; opacity: 0; transition: opacity 0.5s ease; margin-top: 1px; }
+.nameTag .cheersHint kbd { font-size: 13px; padding: 0 5px; }
+.nameTag.near .cheersHint { opacity: 0.8; }
+.nameTag.raised .cheersHint { opacity: 1; animation: cheersPulse 1.4s ease-in-out infinite; }
+@keyframes cheersPulse { 50% { transform: scale(1.08); } }
 #fps { position: fixed; right: 12px; top: 8px; font: 500 16px var(--serif); color: #fff6e0; text-shadow: 0 1px 4px #000; }
 
 /* Friends */

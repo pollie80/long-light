@@ -501,7 +501,9 @@ export class Boat {
     }
   }
 
-  update(dt: number, t: number, forwardInput: number, turnInput: number, oarsOut: boolean, water: Water) {
+  update(dt: number, t: number, forwardInput: number, turnInputRaw: number, oarsOut: boolean, water: Water) {
+    // Backing water, left takes the stern left, the way anyone reversing expects.
+    const turnInput = forwardInput < -0.05 ? -turnInputRaw : turnInputRaw;
     this.oarOut = damp(this.oarOut, oarsOut ? 1 : 0, 4, dt);
     const active = oarsOut && (Math.abs(forwardInput) > 0.05 || Math.abs(turnInput) > 0.05);
     this.rowing = active;

@@ -123,8 +123,11 @@ export class Fishing {
   /** Seconds until a bite, and until the next nibble. The fish in the water set these when one is coming. */
   waitT = 0;
   nibbleT = 0;
-  /** The fish already on its way to the bobber, which is the one that will bite. */
+  /** The fish already on its way to the bobber, which is the one that will bite, and how long it is. */
   preset: Species | null = null;
+  presetSize = 0;
+  /** How long the fish on the line is, in metres. */
+  size = 0;
   private biteT = 0;
   private dip = 0;
   private dipV = 0;
@@ -151,7 +154,7 @@ export class Fishing {
   /** Hooked, and whether it was answered smartly. */
   onHook: ((strike: boolean) => void) | null = null;
   /** Let go and back in the water, here, heading this way. */
-  onFreed: ((s: Species, x: number, z: number, heading: number) => void) | null = null;
+  onFreed: ((s: Species, x: number, z: number, heading: number, size: number) => void) | null = null;
   /** Answered within a moment of the bite: a better hook, and often a better fish. */
   strike = false;
   private biteAge = 0;
@@ -212,6 +215,11 @@ export class Fishing {
     (this.line.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
   }
 
+  /** Seconds to the next bite, from a random number 0 to 1. */
+  static biteWait(r: number): number {
+    return 5 + 115 * Math.pow(r, 1.7);
+  }
+
   get active(): boolean {
     return this.state !== 'idle';
   }
@@ -250,6 +258,7 @@ export class Fishing {
   reelIn() {
     this.state = 'idle';
     this.preset = null;
+    this.presetSize = 0;
     this.bobber.visible = false;
     this.line.visible = false;
     this.clearModel();
@@ -276,8 +285,8 @@ export class Fishing {
           this.lure.y = 0;
           this.splashAt(water, audio, 0.25);
           this.state = 'wait';
-          // A patient wait, but never a chore.
-          this.waitT = 5 + this.rnd() * 14;
+          // A patient wait: as little as five seconds, as long as two minutes, most often under one.
+          this.waitT = Fishing.biteWait(this.rnd());
           this.nibbleT = 2.5 + this.rnd() * 4;
         }
         break;
@@ -295,7 +304,9 @@ export class Fishing {
           this.biteT = 9;
           this.biteAge = 0;
           this.species = this.preset ?? pickCatch(zoneAt(this.lure.x, this.lure.z, hour), hour, this.rnd, this.seen);
+          this.size = this.preset && this.presetSize > 0 ? this.presetSize : this.species.length * (0.82 + this.rnd() * 0.42);
           this.preset = null;
+          this.presetSize = 0;
           this.dipV = -3.4;
           this.splashAt(water, audio, 0.4);
           audio.bite();
@@ -319,16 +330,17 @@ export class Fishing {
           this.leaps = 0;
           this.leapT = 1.6 + this.rnd() * 2.4;
           this.fightT = 0;
-          this.fightDur = this.species?.fight ?? 7;
+          // Well hooked, it comes in quicker.
+          this.fightDur = (this.species?.fight ?? 7) * (this.strike ? 0.7 : 1);
           this.fishDist = Math.hypot(this.lure.x - rodBase.x, this.lure.z - rodBase.z);
           this.fishAng = Math.atan2(this.lure.z - rodBase.z, this.lure.x - rodBase.x);
-          this.model = this.species ? fishModel(this.species) : null;
+          this.model = this.species ? fishModel(this.species, this.size) : null;
           if (this.model) this.scene.add(this.model);
           this.bobber.visible = true;
           this.splashAt(water, audio, 0.55);
         } else if (this.biteT <= 0) {
           this.state = 'wait';
-          this.waitT = 6 + this.rnd() * 12;
+          this.waitT = Fishing.biteWait(this.rnd());
           this.nibbleT = 3;
           this.onSlip?.();
         }
@@ -377,7 +389,7 @@ export class Fishing {
             this.splashAt(water, audio, 0.65);
           }
         }
-        const len = this.species?.length ?? 0.3;
+        const len = this.size || 0.3;
         const leapS = this.leapK >= 0 ? Math.sin(this.leapK * Math.PI) : 0;
         // Friends see the leap through the height of the lure.
         this.lure.y = this.leapK >= 0 ? leapS * (0.45 + len * 0.55) : 0;
@@ -393,8 +405,7 @@ export class Fishing {
           this.splashAt(water, audio, 0.75);
           audio.landed();
           this.modelSwing = 1;
-          const sizeK = 0.82 + this.rnd() * 0.42 + (this.strike ? 0.07 : 0);
-          this.landedSize = (this.species?.length ?? 0.3) * sizeK;
+          this.landedSize = this.size;
           if (this.species) this.onLanded?.(this.species, this.landedSize);
           this.bobber.visible = false;
         }
@@ -404,7 +415,7 @@ export class Fishing {
         // The fish hangs from the rod tip, turning slowly in the light.
         this.modelSwing = damp(this.modelSwing, 0.12, 0.8, dt);
         if (this.model) {
-          const target = new THREE.Vector3(rodTip.x, rodTip.y - 0.56 - Math.max(0, (this.species?.length ?? 0.3) * 0.4), rodTip.z);
+          const target = new THREE.Vector3(rodTip.x, rodTip.y - 0.56 - Math.max(0, (this.size || 0.3) * 0.4), rodTip.z);
           target.x += Math.sin(t * 2.1) * 0.07 * this.modelSwing * 3;
           target.z += Math.cos(t * 1.6) * 0.05 * this.modelSwing * 3;
           this.model.position.lerp(target, 1 - Math.exp(-dt * 5));
@@ -427,7 +438,7 @@ export class Fishing {
             water.splash(this.freeTo.x, this.freeTo.z, 0.55, 0.18);
             audio.splash(0.5);
             const heading = Math.atan2(-(this.freeTo.x - this.freeFrom.x), -(this.freeTo.z - this.freeFrom.z));
-            if (this.species) this.onFreed?.(this.species, this.freeTo.x, this.freeTo.z, heading);
+            if (this.species) this.onFreed?.(this.species, this.freeTo.x, this.freeTo.z, heading, this.size);
             this.clearModel();
             this.reelIn();
           }

@@ -405,6 +405,8 @@ await wait(2000);
 check('lure lands and waits', (await s()).fish === 'wait');
 await shot('11-waiting');
 check('fish can be seen around the boat', await page.evaluate(() => __ll.game.swimmers.count >= 3), String(await page.evaluate(() => __ll.game.swimmers.count)));
+// The wait can be up to two minutes; bring the bite near so a fish sets off now.
+await page.evaluate(() => { __ll.game.fishing.waitT = Math.min(__ll.game.fishing.waitT, 3); });
 const coming = await page.evaluate(async () => {
   const g = __ll.game;
   const sw = g.swimmers;
@@ -433,7 +435,7 @@ const fishPx = await page.evaluate(() => {
   return { x: (p.x * 0.5 + 0.5) * innerWidth, y: (-p.y * 0.5 + 0.5) * innerHeight };
 });
 fs.writeFileSync(path.join(outDir, 'fish-px.json'), JSON.stringify(fishPx));
-await page.evaluate(() => { __ll.game.fishing.waitT = 0.05; });
+await page.evaluate(() => { __ll.game.fishing.waitT = 0.0001; });
 await wait(700);
 check('a fish bites', (await s()).fish === 'bite');
 check('and it is the one that came', (await page.evaluate(() => __ll.game.fishing.species?.id)) === coming.id, await page.evaluate(() => __ll.game.fishing.species?.id));
@@ -512,7 +514,7 @@ await wait(2300);
 br = await beer();
 check('B drinks while waiting for a bite', br.phase === 'sipping' && (await s()).fish === 'wait', JSON.stringify(br));
 await shot('15b-beer-fishing');
-await page.evaluate(() => { __ll.game.fishing.waitT = 0.05; });
+await page.evaluate(() => { __ll.game.fishing.waitT = 0.0001; });
 await wait(1300);
 br = await beer();
 check('a bite puts the bottle away', br.phase === 'away', JSON.stringify(br));

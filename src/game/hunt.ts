@@ -7,40 +7,14 @@ import { Builder, solid, TRS } from '../world/builder';
 import { groundY, onJetty } from '../world/land';
 import { MAP } from '../world/maps';
 import type { Water } from '../world/water';
-
-export interface BirdKind {
-  name: string;
-  body: number;
-  wing: number;
-  head: number;
-  bill: number;
-  size: number;
-  /** Metres a second. */
-  speed: number;
-  flock: [number, number];
-}
-
-const KINDS: Record<string, BirdKind[]> = {
-  cove: [
-    { name: 'Mallard', body: 0x8a7a64, wing: 0x6a5c4c, head: 0x1f6a48, bill: 0xd9a62e, size: 1, speed: 11, flock: [3, 6] },
-    { name: 'Herring Gull', body: 0xe8e4da, wing: 0xa8aab0, head: 0xf0ece4, bill: 0xe0b030, size: 1.15, speed: 9, flock: [2, 4] },
-    { name: 'Wood Pigeon', body: 0x8a8c98, wing: 0x6e707c, head: 0x74788a, bill: 0xd0a040, size: 0.8, speed: 13, flock: [3, 7] },
-  ],
-  philippines: [
-    { name: 'Great Egret', body: 0xf2efe6, wing: 0xe8e4da, head: 0xf4f0e8, bill: 0xe0a830, size: 1.3, speed: 8, flock: [2, 4] },
-    { name: 'Collared Kingfisher', body: 0xf0ece0, wing: 0x2a7a9c, head: 0x2a7a9c, bill: 0x20201e, size: 0.62, speed: 14, flock: [1, 3] },
-    { name: 'Philippine Duck', body: 0x8a7458, wing: 0x4a6a5a, head: 0xb8946a, bill: 0x4a5a6a, size: 1, speed: 11, flock: [3, 6] },
-  ],
-  canada: [
-    { name: 'Canada Goose', body: 0x8a7c68, wing: 0x5e5244, head: 0x1a1a1a, bill: 0x1a1a1a, size: 1.5, speed: 10, flock: [5, 9] },
-    { name: 'Common Loon', body: 0x2a2c30, wing: 0x1e2024, head: 0x14181a, bill: 0x20242a, size: 1.1, speed: 12, flock: [1, 3] },
-    { name: "Clark's Nutcracker", body: 0x9a9a98, wing: 0x26262a, head: 0xa8a8a6, bill: 0x20242a, size: 0.66, speed: 13, flock: [2, 4] },
-  ],
-};
+import { BirdKind, birdsOf, neonBird, pickBird } from './birddata';
 
 interface Bird {
+  neon: boolean;
   root: THREE.Group;
   wings: THREE.Object3D[];
+  bodyMesh: THREE.Mesh;
+  wingMeshes: THREE.Mesh[];
   kind: BirdKind;
   alive: boolean;
   active: boolean;
@@ -56,6 +30,8 @@ export interface ShotResult {
   distance: number;
   /** How many fell to the one shot. */
   count: number;
+  /** Each one that fell, and how far off, and whether it was glowing. */
+  hits: { kind: BirdKind; distance: number; neon: boolean }[];
 }
 
 const POOL = 16;
@@ -78,11 +54,18 @@ export class Hunt {
   private e = new THREE.Euler();
   private tmp = new THREE.Vector3();
   private tmp2 = new THREE.Vector3();
-  private geos = new Map<BirdKind, { body: THREE.BufferGeometry; wing: THREE.BufferGeometry }>();
+  private geos = new Map<string, { body: THREE.BufferGeometry; wing: THREE.BufferGeometry }>();
+  /** Glowing birds wear their own material, one for each neon colour. */
+  private neonMats = new Map<number, THREE.ShaderMaterial>();
+  /** The hour, for which birds are about; and which have been brought down before. */
+  hour = 12;
+  seen: (id: string) => boolean = () => false;
+  /** A rare one has just appeared somewhere in the sky. */
+  onRare: ((kind: BirdKind) => void) | null = null;
 
   constructor() {
-    const kinds = KINDS[MAP.id];
-    for (const kind of kinds) this.geos.set(kind, this.buildGeo(kind));
+    const kinds = birdsOf(MAP.id);
+    for (const kind of kinds) this.geos.set(kind.id, this.buildGeo(kind));
     for (let i = 0; i < POOL; i++) this.birds.push(this.makeBird(kinds[i % kinds.length]));
     const fGeo = new THREE.PlaneGeometry(0.13, 0.05);
     const fMat = new THREE.MeshBasicMaterial({ color: 0xd8d4c8, side: THREE.DoubleSide });
@@ -99,45 +82,103 @@ export class Hunt {
     this.group.add(this.fMesh);
   }
 
-  private buildGeo(k: BirdKind) {
+  /** Each kind's outline: long necks and bills on the waders, broad wings on the hunters, a round head on the owls. */
+  private buildGeo(k: BirdKind, neon = false) {
+    const s = k.shape;
+    const glow = { emis: neon ? 0.75 : 0 };
+    const longNeck = s === 'heron' || s === 'goose' || s === 'loon';
+    const headZ = longNeck ? -0.6 : s === 'owl' ? -0.3 : -0.38;
+    const headR = s === 'owl' ? 0.15 : s === 'heron' ? 0.08 : 0.1;
+    const billLen = s === 'heron' ? 0.3 : s === 'hornbill' ? 0.32 : s === 'owl' ? 0.06 : s === 'raptor' || s === 'parrot' ? 0.09 : s === 'small' ? 0.12 : 0.13;
     const b = new Builder(5);
-    b.sphere(0.2, k.body, TRS(0, 0, 0, 0, 0, 0, 0.8, 0.75, 1.75), { jit: 0.06 }, 10, 8);
-    b.sphere(0.1, k.head, TRS(0, 0.06, -0.38), {}, 8, 6);
-    b.add(new THREE.ConeGeometry(0.035, 0.13, 6), k.bill, TRS(0, 0.05, -0.51, -Math.PI / 2, 0, 0));
-    b.add(new THREE.ConeGeometry(0.1, 0.26, 5), k.wing, TRS(0, 0.01, 0.42, Math.PI / 2, 0, 0, 1, 1, 0.35));
+    b.sphere(0.2, k.body, TRS(0, 0, 0, 0, 0, 0, 0.8, 0.75, s === 'owl' ? 1.3 : 1.75), { jit: 0.06, ...glow }, 10, 8);
+    if (k.breast !== undefined) b.sphere(0.17, k.breast, TRS(0, -0.05, -0.08, 0, 0, 0, 0.82, 0.6, 1.4), { jit: 0.04, ...glow }, 10, 6);
+    if (longNeck) b.cyl(0.05, 0.07, 0.36, s === 'goose' ? k.head : k.breast ?? k.body, TRS(0, 0.05, -0.42, -Math.PI / 2 + 0.25, 0, 0), glow, 6);
+    b.sphere(headR, k.head, TRS(0, 0.07, headZ), glow, 8, 6);
+    b.add(new THREE.ConeGeometry(s === 'hornbill' ? 0.06 : 0.035, billLen, 6), k.bill, TRS(0, 0.06, headZ - headR - billLen / 2 + 0.02, -Math.PI / 2, 0, 0));
+    if (s === 'hornbill') b.box(0.04, 0.05, 0.16, k.accent ?? k.bill, TRS(0, 0.13, headZ - 0.14), {}, 0.01);
+    // The marks the paintings show: a goose's white chin, a crane's red cap, an owl's pale face, a cockatoo's crest.
+    if (s === 'goose' && k.accent !== undefined) b.sphere(0.06, k.accent, TRS(0, 0.03, headZ + 0.02, 0, 0, 0, 1.1, 0.7, 1), glow, 6, 5);
+    if (k.id === 'whoopingcrane' && k.accent !== undefined) b.sphere(0.04, k.accent, TRS(0, 0.13, headZ), glow, 6, 5);
+    if (s === 'owl') b.sphere(headR * 0.85, k.breast ?? k.body, TRS(0, 0.06, headZ - headR * 0.45, 0, 0, 0, 1, 1, 0.45), glow, 8, 6);
+    if (s === 'parrot') b.add(new THREE.ConeGeometry(0.05, 0.2, 5), k.accent ?? k.head, TRS(0, 0.2, headZ + 0.08, 0.7, 0, 0));
+    if (k.id === 'hornedowl') for (const x of [-0.07, 0.07]) b.add(new THREE.ConeGeometry(0.03, 0.09, 4), k.head, TRS(x, 0.2, headZ + 0.03));
+    const tailLong = s === 'raptor' || s === 'corvid' || s === 'parrot' || s === 'hornbill';
+    b.add(new THREE.ConeGeometry(0.1, tailLong ? 0.4 : 0.26, 5), k.wing, TRS(0, 0.01, tailLong ? 0.5 : 0.42, Math.PI / 2, 0, 0, 1, 1, 0.35));
+    // Long legs trail out behind the waders.
+    if (s === 'heron') for (const x of [-0.03, 0.03]) b.cyl(0.012, 0.012, 0.5, 0x2a2a28, TRS(x, -0.06, 0.55, Math.PI / 2, 0, 0), {}, 5);
+    const span = s === 'raptor' ? 1.4 : s === 'heron' || s === 'hornbill' ? 1.3 : s === 'small' ? 0.85 : s === 'owl' ? 1.1 : 1;
     const w = new Builder(6);
-    w.box(0.62, 0.02, 0.26, k.wing, TRS(0.31, 0, 0.02), { jit: 0.06 }, 0.008);
-    w.box(0.34, 0.016, 0.16, k.wing, TRS(0.74, 0, 0.05), { jit: 0.06 }, 0.006);
+    w.box(0.62 * span, 0.02, 0.26 * (s === 'raptor' || s === 'owl' ? 1.25 : 1), k.wing, TRS(0.31 * span, 0, 0.02), { jit: 0.06, ...glow }, 0.008);
+    w.box(0.34 * span, 0.016, 0.16, k.accent !== undefined && s !== 'owl' ? k.accent : k.wing, TRS(0.74 * span, 0, 0.05), { jit: 0.06, ...glow }, 0.006);
     return { body: b.build(), wing: w.build() };
   }
 
   private makeBird(kind: BirdKind): Bird {
-    const g = this.geos.get(kind)!;
+    const g = this.geos.get(kind.id)!;
     const root = new THREE.Group();
-    root.add(solid(g.body, this.mat, false));
+    const bodyMesh = solid(g.body, this.mat, false);
+    root.add(bodyMesh);
     const wings: THREE.Object3D[] = [];
+    const wingMeshes: THREE.Mesh[] = [];
     for (const side of [-1, 1]) {
       const pivot = new THREE.Group();
       pivot.position.set(side * 0.1, 0.04, -0.02);
       pivot.scale.x = side;
-      pivot.add(solid(g.wing, this.mat, false));
+      const wm = solid(g.wing, this.mat, false);
+      pivot.add(wm);
       root.add(pivot);
       wings.push(pivot);
+      wingMeshes.push(wm);
     }
     root.visible = false;
     root.scale.setScalar(kind.size);
     this.group.add(root);
     this.mat.side = THREE.DoubleSide;
-    return { root, wings, kind, alive: false, active: false, dead: false, deadT: 0, phase: this.rnd() * 6, vel: new THREE.Vector3(), spin: new THREE.Vector3() };
+    return { neon: false, root, wings, bodyMesh, wingMeshes, kind, alive: false, active: false, dead: false, deadT: 0, phase: this.rnd() * 6, vel: new THREE.Vector3(), spin: new THREE.Vector3() };
+  }
+
+  /** Any bird in the pool can become any kind, glowing or not: only its meshes change. */
+  private setKind(b: Bird, kind: BirdKind, neon: boolean) {
+    if (b.kind === kind && b.neon === neon) return;
+    const shown = neon ? neonBird(kind) : kind;
+    const key = neon ? `${kind.id}~` : kind.id;
+    let g = this.geos.get(key);
+    if (!g) {
+      g = this.buildGeo(shown, neon);
+      this.geos.set(key, g);
+    }
+    b.kind = kind;
+    b.neon = neon;
+    b.bodyMesh.geometry = g.body;
+    for (const wm of b.wingMeshes) wm.geometry = g.wing;
+    let mat = this.mat;
+    if (neon) {
+      const col = shown.body;
+      mat = this.neonMats.get(col) ?? paintedMaterial();
+      if (!this.neonMats.has(col)) {
+        mat.uniforms.uEmisCol.value.setHex(col);
+        mat.uniforms.uEmisOn.value = 2.2;
+        mat.side = THREE.DoubleSide;
+        this.neonMats.set(col, mat);
+      }
+    }
+    b.bodyMesh.material = mat;
+    for (const wm of b.wingMeshes) wm.material = mat;
+    b.root.scale.setScalar(kind.size);
   }
 
   private spawnFlock(center: THREE.Vector3) {
     const free = this.birds.filter((b) => !b.active);
-    const kinds = KINDS[MAP.id];
-    const kind = kinds[Math.floor(this.rnd() * kinds.length)];
-    const group = free.filter((b) => b.kind === kind);
+    const kind = pickBird(MAP.id, this.hour, this.rnd, this.seen);
+    const group = free;
     const n = Math.min(group.length, kind.flock[0] + Math.floor(this.rnd() * (kind.flock[1] - kind.flock[0] + 1)));
     if (n === 0) return;
+    // After dark, now and then, a flock comes over glowing.
+    const night = this.hour > 19.8 || this.hour < 5;
+    const neon = night && this.rnd() < 0.08;
+    for (let i = 0; i < n; i++) this.setKind(group[i], kind, neon);
+    if (kind.tier === 'epic' || kind.tier === 'legendary') this.onRare?.(kind);
     // Across the sky, passing near enough to reach but never straight overhead.
     const a = this.rnd() * Math.PI * 2;
     const dir = this.tmp.set(Math.cos(a), 0, Math.sin(a));
@@ -269,8 +310,11 @@ export class Hunt {
       b.vel.y = 1.5;
       b.spin.set((this.rnd() - 0.5) * 9, 0, (this.rnd() - 0.5) * 9);
       this.puff(b.root.position, 11);
-      if (!result) result = { name: b.kind.name, distance: along, count: 1 };
-      else result.count += 1;
+      if (!result) result = { name: b.kind.name, distance: along, count: 1, hits: [{ kind: b.kind, distance: along, neon: b.neon }] };
+      else {
+        result.count += 1;
+        result.hits.push({ kind: b.kind, distance: along, neon: b.neon });
+      }
     }
     return result;
   }

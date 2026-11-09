@@ -609,32 +609,72 @@ export class AudioWorld {
     this.burst(this.noiseWhite, 0.012, 0.024, { type: 'bandpass', f0: 4300, q: 5 });
   }
 
-  /** A big pistol across open water: a very hard crack, a short thump, and the hills answering. `near` is 1 for your own. */
+  /** A low punch you feel more than hear: a sine dropping in pitch. */
+  private thump(f0: number, f1: number, dur: number, vol: number, delay = 0) {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime + delay;
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(f0, t);
+    o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(this.sfxBus);
+    o.start(t);
+    o.stop(t + dur + 0.05);
+  }
+
+  /** Music and the sea step back for a moment after a shot, so it lands. */
+  private duck(depth: number) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    for (const bus of [this.music, this.amb]) {
+      const now = bus.gain.value;
+      bus.gain.cancelScheduledValues(t);
+      bus.gain.setValueAtTime(now, t);
+      bus.gain.linearRampToValueAtTime(now * (1 - depth), t + 0.03);
+      bus.gain.linearRampToValueAtTime(now, t + 1.6);
+    }
+  }
+
+  /**
+   * A shot across open water, `near` 1 for your own. Each gun is its own sound: the Desert Eagle a hard crack on a
+   * chesty boom; the rifle a whip-crack that rolls round the hills for seconds; the shotgun a deep, wide blast.
+   */
   shot(near = 1, kind: 'pistol' | 'rifle' | 'shotgun' = 'pistol') {
     if (!this.ctx) return;
     const v = near;
+    if (near > 0.9) this.duck(0.65);
     if (kind === 'rifle') {
-      // A rifle: a whip-crack that goes on rolling round the hills for a long time.
-      this.burst(this.noiseWhite, 0.035, 1.25 * v, { type: 'highpass', f0: 2200 }, {});
-      this.burst(this.noisePink, 0.09, 0.9 * v, { type: 'bandpass', f0: 1400, f1: 500, q: 0.8 }, {});
-      this.burst(this.noiseBrown, 0.3, 0.95 * v, { type: 'lowpass', f0: 520, f1: 80 }, {});
-      this.burst(this.noiseBrown, 1.0, 0.24 * v, { type: 'lowpass', f0: 340, f1: 80 }, { delay: 0.45, pan: -0.5 });
-      this.burst(this.noiseBrown, 1.4, 0.15 * v, { type: 'lowpass', f0: 260, f1: 70 }, { delay: 1.05, pan: 0.5 });
-      this.burst(this.noiseBrown, 1.6, 0.08 * v, { type: 'lowpass', f0: 200, f1: 60 }, { delay: 1.8, pan: -0.2 });
+      this.burst(this.noiseWhite, 0.03, 2.2 * v, { type: 'highpass', f0: 2600 }, {});
+      this.burst(this.noisePink, 0.11, 1.6 * v, { type: 'bandpass', f0: 1600, f1: 420, q: 0.7 }, {});
+      this.burst(this.noiseBrown, 0.32, 1.5 * v, { type: 'lowpass', f0: 600, f1: 80 }, {});
+      this.thump(110, 45, 0.22, 0.9 * v);
+      // The hills answer, one after another.
+      this.burst(this.noisePink, 0.5, 0.42 * v, { type: 'bandpass', f0: 900, f1: 300, q: 0.6 }, { delay: 0.42, pan: -0.55, wet: 0.4 });
+      this.burst(this.noiseBrown, 1.2, 0.36 * v, { type: 'lowpass', f0: 380, f1: 80 }, { delay: 0.5, pan: -0.5 });
+      this.burst(this.noiseBrown, 1.5, 0.26 * v, { type: 'lowpass', f0: 280, f1: 70 }, { delay: 1.1, pan: 0.55 });
+      this.burst(this.noiseBrown, 1.8, 0.16 * v, { type: 'lowpass', f0: 220, f1: 60 }, { delay: 1.9, pan: -0.2 });
+      this.burst(this.noiseBrown, 2.0, 0.09 * v, { type: 'lowpass', f0: 180, f1: 50 }, { delay: 2.8, pan: 0.3 });
       return;
     }
     if (kind === 'shotgun') {
-      // Birdshot: a deep, wide boom with less snap to it.
-      this.burst(this.noisePink, 0.07, 0.9 * v, { type: 'highpass', f0: 900 }, {});
-      this.burst(this.noiseBrown, 0.38, 1.45 * v, { type: 'lowpass', f0: 420, f1: 60 }, {});
-      this.burst(this.noiseBrown, 0.9, 0.3 * v, { type: 'lowpass', f0: 260, f1: 70 }, { delay: 0.38, pan: -0.4 });
-      this.burst(this.noiseBrown, 1.2, 0.14 * v, { type: 'lowpass', f0: 200, f1: 60 }, { delay: 0.9, pan: 0.45 });
+      this.burst(this.noisePink, 0.08, 1.7 * v, { type: 'highpass', f0: 800 }, {});
+      this.burst(this.noiseBrown, 0.5, 2.3 * v, { type: 'lowpass', f0: 520, f1: 50 }, {});
+      this.thump(85, 32, 0.45, 1.3 * v);
+      this.burst(this.noisePink, 0.25, 0.5 * v, { type: 'bandpass', f0: 2400, f1: 900, q: 0.5 }, { delay: 0.02, wet: 0.5 });
+      this.burst(this.noiseBrown, 1.0, 0.45 * v, { type: 'lowpass', f0: 260, f1: 60 }, { delay: 0.4, pan: -0.4 });
+      this.burst(this.noiseBrown, 1.3, 0.22 * v, { type: 'lowpass', f0: 200, f1: 50 }, { delay: 1.0, pan: 0.45 });
       return;
     }
-    this.burst(this.noisePink, 0.05, 1.2 * v, { type: 'highpass', f0: 1500 }, {});
-    this.burst(this.noiseBrown, 0.22, 1.2 * v, { type: 'lowpass', f0: 620, f1: 90 }, {});
-    this.burst(this.noiseBrown, 0.8, 0.22 * v, { type: 'lowpass', f0: 300, f1: 90 }, { delay: 0.34, pan: -0.4 });
-    this.burst(this.noiseBrown, 1.1, 0.11 * v, { type: 'lowpass', f0: 220, f1: 80 }, { delay: 0.8, pan: 0.45 });
+    this.burst(this.noisePink, 0.06, 2.0 * v, { type: 'highpass', f0: 1500 }, {});
+    this.burst(this.noiseBrown, 0.26, 2.0 * v, { type: 'lowpass', f0: 700, f1: 90 }, {});
+    this.thump(140, 55, 0.25, 1.0 * v);
+    this.burst(this.noiseBrown, 0.8, 0.4 * v, { type: 'lowpass', f0: 300, f1: 90 }, { delay: 0.34, pan: -0.4 });
+    this.burst(this.noiseBrown, 1.1, 0.2 * v, { type: 'lowpass', f0: 220, f1: 80 }, { delay: 0.8, pan: 0.45 });
   }
 
   /** Two bottles meeting. */
