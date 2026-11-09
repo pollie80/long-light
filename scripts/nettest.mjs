@@ -56,7 +56,7 @@ const shot = (page, n) => page.screenshot({ path: path.join(outDir, n + '.png') 
 const visible = (page, sel) => page.locator(sel).isVisible();
 const netOf = (page) => page.evaluate(() => {
   const g = __ll.game;
-  return { role: g.net.role, slot: g.net.slot, code: g.net.code, players: g.net.players.size, remotes: g.remotes.size, hour: g.hour, running: g.clockRunning, time: g.time, mode: g.mode, home: g.boat.home };
+  return { role: g.net.role, slot: g.net.slot, code: g.net.code, players: g.net.players.size, remotes: g.friends.remotes.size, hour: g.hour, running: g.clockRunning, time: g.time, mode: g.mode, home: g.boat.home };
 });
 
 // ---- Title screen ---------------------------------------------------------------------------------
@@ -111,7 +111,7 @@ check('both see each other', h1.players === 1 && f1.players === 1 && h1.role ===
 check('friend has a separate boat place', f1.slot === 1 && f1.home.z < 0, JSON.stringify(f1.home));
 check('friend starts by their own boat', await friend.evaluate(() => Math.hypot(__ll.game.boat.x - __ll.game.boat.home.x, __ll.game.boat.z - __ll.game.boat.home.z) < 1));
 check('time matches', Math.abs(h1.time - f1.time) < 5 && Math.abs(h1.hour - f1.hour) < 0.1, `${h1.hour.toFixed(2)} / ${f1.hour.toFixed(2)}`);
-check('figures appear', await until(host, () => __ll.game.remotes.size === 1) && await until(friend, () => __ll.game.remotes.size === 1));
+check('figures appear', await until(host, () => __ll.game.friends.remotes.size === 1) && await until(friend, () => __ll.game.friends.remotes.size === 1));
 check('names stay plain text', await host.evaluate(() => {
   const tag = document.querySelector('.nameTag');
   return !!tag && !tag.querySelector('img') && tag.querySelector('.tagName').textContent.includes('<img') && !document.querySelector('#fList img');
@@ -119,12 +119,12 @@ check('names stay plain text', await host.evaluate(() => {
 check('joined message shows', await until(host, () => document.querySelector('#toast').textContent.includes('joined')));
 
 // Walks are seen.
-const before = await host.evaluate(() => __ll.game.remotes.get('p1').fisher.root.getWorldPosition(new (__ll.game.camera.position.constructor)()).toArray());
+const before = await host.evaluate(() => __ll.game.friends.remotes.get('p1').fisher.root.getWorldPosition(new (__ll.game.camera.position.constructor)()).toArray());
 await friend.keyboard.down('KeyW');
 await wait(2600);
 await friend.keyboard.up('KeyW');
 await wait(800);
-const after = await host.evaluate(() => __ll.game.remotes.get('p1').fisher.root.getWorldPosition(new (__ll.game.camera.position.constructor)()).toArray());
+const after = await host.evaluate(() => __ll.game.friends.remotes.get('p1').fisher.root.getWorldPosition(new (__ll.game.camera.position.constructor)()).toArray());
 const fReal = await friend.evaluate(() => [__ll.game.px, __ll.game.py, __ll.game.pz]);
 const moved = Math.hypot(after[0] - before[0], after[2] - before[2]);
 const err = Math.hypot(after[0] - fReal[0], after[2] - fReal[2]);
@@ -134,7 +134,7 @@ check('host sees the friend walk', moved > 3 && err < 0.6, `moved ${moved.toFixe
 await friend.evaluate(() => { __ll.place(-10, 0, 0); });
 await host.evaluate(() => { __ll.place(-14, 0, -Math.PI / 2); __ll.setHour(18.2); });
 await wait(2500);
-await host.evaluate(() => { const g = __ll.game; g.yaw = -Math.PI / 2; g.pitch = 0.1; });
+await host.evaluate(() => { const g = __ll.game; g.cam.yaw = -Math.PI / 2; g.cam.pitch = 0.1; });
 await wait(800);
 await shot(host, '05-host-sees-friend');
 const tag = await host.evaluate(() => {
@@ -146,7 +146,7 @@ check('name tag floats over the friend', tag.o > 0.3 && tag.x > 0 && tag.y > 0, 
 
 // A jump is seen.
 const peak = friend.evaluate(async () => {
-  const fig = __ll.game.remotes.get('host').fisher.root;
+  const fig = __ll.game.friends.remotes.get('host').fisher.root;
   const base = fig.position.y;
   let top = base;
   let sawAir = false;
@@ -166,7 +166,7 @@ check('friend sees the host jump', seen.up > 0.2, `${seen.up.toFixed(2)} m up, m
 // A friend hears and sees a shot.
 await host.keyboard.press('KeyG');
 await wait(500);
-check('friend sees the host raise a gun', await until(friend, () => __ll.game.net.players.get('host').state?.gun === true && __ll.game.remotes.get('host').fisher.gun.visible, null, 4000));
+check('friend sees the host raise a gun', await until(friend, () => __ll.game.net.players.get('host').state?.gun === true && __ll.game.friends.remotes.get('host').fisher.gun.visible, null, 4000));
 await host.mouse.move(640, 360);
 await host.mouse.down();
 await host.mouse.up();
@@ -214,39 +214,39 @@ await wait(400);
 await shot(friend, '07-wardrobe');
 await friend.locator('#wFoot button[data-w="done"]').click();
 await wait(1000);
-const looks = [await friend.evaluate(() => JSON.stringify(__ll.game.fisher.look)), await host.evaluate(() => JSON.stringify(__ll.game.remotes.get('p1').fisher.look))];
+const looks = [await friend.evaluate(() => JSON.stringify(__ll.game.fisher.look)), await host.evaluate(() => JSON.stringify(__ll.game.friends.remotes.get('p1').fisher.look))];
 check('a new look reaches friends', looks[0] === looks[1]);
 
 // Boat.
 await host.evaluate(() => __ll.board());
 check('host boards', await until(host, () => __ll.game.mode === 'row', null, 6000));
-check('friend sees host in a boat', await until(friend, () => __ll.game.remotes.get('host').inBoat === true, null, 5000));
+check('friend sees host in a boat', await until(friend, () => __ll.game.friends.remotes.get('host').inBoat === true, null, 5000));
 await host.keyboard.down('KeyW');
 await wait(3500);
 await host.keyboard.up('KeyW');
 await wait(800);
-const boats = [await host.evaluate(() => [__ll.game.boat.x, __ll.game.boat.z]), await friend.evaluate(() => [__ll.game.remotes.get('host').boat.x, __ll.game.remotes.get('host').boat.z])];
+const boats = [await host.evaluate(() => [__ll.game.boat.x, __ll.game.boat.z]), await friend.evaluate(() => [__ll.game.friends.remotes.get('host').boat.x, __ll.game.friends.remotes.get('host').boat.z])];
 const boatErr = Math.hypot(boats[0][0] - boats[1][0], boats[0][1] - boats[1][1]);
 check('rowing is seen', boatErr < 1.2, `off by ${boatErr.toFixed(2)} m`);
 await host.keyboard.down('Space');
 await wait(900);
 await host.keyboard.up('Space');
-check('casting is seen', await until(friend, () => { const r = __ll.game.remotes.get('host'); return r.line.visible && __ll.game.net.players.get('host').state.fs !== 'idle'; }, null, 5000));
-await friend.evaluate(() => { const b = __ll.game.remotes.get('host').boat; __ll.place(-24, 0, 0); const g = __ll.game; g.yaw = Math.atan2(-(b.x - g.px), -(b.z - g.pz)); g.pitch = 0.12; });
+check('casting is seen', await until(friend, () => { const r = __ll.game.friends.remotes.get('host'); return r.line.visible && __ll.game.net.players.get('host').state.fs !== 'idle'; }, null, 5000));
+await friend.evaluate(() => { const b = __ll.game.friends.remotes.get('host').boat; __ll.place(-24, 0, 0); const g = __ll.game; g.cam.yaw = Math.atan2(-(b.x - g.px), -(b.z - g.pz)); g.cam.pitch = 0.12; });
 await wait(1500);
 await shot(friend, '08-friend-sees-boat');
 
 // ---- Sharing a boat ----------------------------------------------------------------------------------
 await host.evaluate(() => { __ll.game.fishing.reelIn(); __ll.game.ui.hooks.setClockRunning(false); __ll.setHour(17.4); __ll.boatAt(-22, 3.2, Math.PI / 2); __ll.game.boat.speed = 0; });
 await wait(1600);
-await friend.evaluate(() => { const g = __ll.game; __ll.place(-22, 0.7, 0); g.yaw = 0; });
+await friend.evaluate(() => { const g = __ll.game; __ll.place(-22, 0.7, 0); g.cam.yaw = 0; });
 await wait(900);
 const offer = await friend.locator('#prompt').textContent();
 check("standing by a friend's boat offers a seat", /climb into .*boat/.test(offer), offer);
 await shot(friend, '08b-boat-offer');
 await friend.keyboard.press('KeyE');
-check('friend climbs in', await until(friend, () => __ll.game.mode === 'ride' && __ll.game.rideWith === 'host', null, 5000));
-check('the boat owner sees them aboard', await until(host, () => __ll.game.remotes.get('p1').fisher.root.parent === __ll.game.boat.body, null, 5000));
+check('friend climbs in', await until(friend, () => __ll.game.mode === 'ride' && __ll.game.friends.rideWith === 'host', null, 5000));
+check('the boat owner sees them aboard', await until(host, () => __ll.game.friends.remotes.get('p1').fisher.root.parent === __ll.game.boat.body, null, 5000));
 const before2 = await friend.evaluate(() => __ll.game.fisher.root.getWorldPosition(new (__ll.game.camera.position.constructor)()).toArray());
 await host.keyboard.down('KeyW');
 await wait(4000);
@@ -257,7 +257,7 @@ const trueBoat = await host.evaluate(() => [__ll.game.boat.x, __ll.game.boat.z])
 const carried = Math.hypot(after2[0] - before2[0], after2[2] - before2[2]);
 const offBoat = Math.hypot(after2[0] - trueBoat[0], after2[2] - trueBoat[1]);
 check("the passenger goes where the boat goes", carried > 2 && offBoat < 3.5, `carried ${carried.toFixed(1)} m, ${offBoat.toFixed(1)} m from the middle of the boat`);
-await friend.evaluate(() => { const g = __ll.game; g.yaw = g.vessel.heading + 2.3; g.pitch = 0.32; });
+await friend.evaluate(() => { const g = __ll.game; g.cam.yaw = g.vessel.heading + 2.3; g.cam.pitch = 0.32; });
 await wait(1200);
 await shot(friend, '08c-passenger');
 await friend.keyboard.down('Space');
@@ -289,25 +289,25 @@ await wait(1500);
 await third.evaluate(() => { const g = __ll.game; __ll.place(-22, 0.7, 0); });
 await wait(900);
 await third.keyboard.press('KeyE');
-check('a second friend climbs into the same boat', await until(third, () => __ll.game.mode === 'ride' && __ll.game.rideWith === 'host', null, 6000));
+check('a second friend climbs into the same boat', await until(third, () => __ll.game.mode === 'ride' && __ll.game.friends.rideWith === 'host', null, 6000));
 const seatsApart = await host.evaluate(async () => {
   await new Promise((f) => setTimeout(f, 1500));
   const g = __ll.game;
-  const figures = [...g.remotes.values()].filter((r) => r.fisher.root.parent === g.boat.body);
+  const figures = [...g.friends.remotes.values()].filter((r) => r.fisher.root.parent === g.boat.body);
   return { aboard: figures.length, apart: figures.length === 2 ? figures[0].fisher.root.position.distanceTo(figures[1].fisher.root.position) : 0 };
 });
 check('and they get separate seats', seatsApart.aboard === 2 && seatsApart.apart > 0.3, JSON.stringify(seatsApart));
-await host.evaluate(() => { const g = __ll.game; g.yaw = g.boat.heading + 2.3; g.pitch = 0.32; });
+await host.evaluate(() => { const g = __ll.game; g.cam.yaw = g.boat.heading + 2.3; g.cam.pitch = 0.32; });
 await wait(1000);
 await shot(host, '08d-three-in-a-boat');
 // Stepping off at the jetty.
 await third.keyboard.press('KeyE');
-check('a passenger steps off onto the jetty', await until(third, () => __ll.game.mode === 'walk' && __ll.game.rideWith === null, null, 6000));
-check('the others see them go', await until(host, () => [...__ll.game.remotes.values()].filter((r) => r.fisher.root.parent === __ll.game.boat.body).length === 1, null, 6000));
+check('a passenger steps off onto the jetty', await until(third, () => __ll.game.mode === 'walk' && __ll.game.friends.rideWith === null, null, 6000));
+check('the others see them go', await until(host, () => [...__ll.game.friends.remotes.values()].filter((r) => r.fisher.root.parent === __ll.game.boat.body).length === 1, null, 6000));
 await third.evaluate(() => __ll.game.ui.hooks.friends());
 await wait(300);
 await third.locator('#fLeave').click();
-check('leaving tells everyone', await until(friend, () => __ll.game.net.players.size === 1 && __ll.game.remotes.size === 1) && await until(host, () => __ll.game.net.players.size === 1));
+check('leaving tells everyone', await until(friend, () => __ll.game.net.players.size === 1 && __ll.game.friends.remotes.size === 1) && await until(host, () => __ll.game.net.players.size === 1));
 check('the one who left is alone again', (await netOf(third)).role === 'solo' && (await netOf(third)).remotes === 0);
 await third.context().close();
 
@@ -328,9 +328,9 @@ await wait(1000);
 await friend.evaluate(() => { __ll.game.net.tick; });
 check('friend is still aboard until then', (await friend.evaluate(() => __ll.game.mode)) === 'ride');
 await host.evaluate(() => __ll.game.ui.hooks.leaveCove());
-check('friend carries on alone when the host goes, off the boat too', await until(friend, () => __ll.game.net.role === 'solo' && __ll.game.remotes.size === 0, null, 20000));
+check('friend carries on alone when the host goes, off the boat too', await until(friend, () => __ll.game.net.role === 'solo' && __ll.game.friends.remotes.size === 0, null, 20000));
 check('and is told so', await until(friend, () => document.querySelector('#toast').textContent.includes('closed their game'), null, 3000));
-check('and is put safely back on the jetty', await friend.evaluate(() => __ll.game.mode === 'walk' && __ll.game.rideWith === null && __ll.game.fisher.root.parent === __ll.game.scene));
+check('and is put safely back on the jetty', await friend.evaluate(() => __ll.game.mode === 'walk' && __ll.game.friends.rideWith === null && __ll.game.fisher.root.parent === __ll.game.scene));
 const fEnd = await netOf(friend);
 check('friend goes back to the first boat place', fEnd.home.z > 0);
 await wait(800);
@@ -350,7 +350,7 @@ for (let i = 0; i < 8; i++) {
   const r = await dead.evaluate(async (slot) => {
     const g = __ll.game;
     const sleep = (ms) => new Promise((f) => setTimeout(f, ms));
-    g.setBoatSlot(slot);
+    g.friends.setBoatSlot(slot);
     await sleep(100);
     __ll.place(g.boat.home.x, 0, Math.PI / 2);
     await sleep(500);

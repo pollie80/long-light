@@ -111,7 +111,7 @@ if (joined) {
       return {
         role: g.net.role, mode: g.mode, slot: g.net.slot, hour: +g.hour.toFixed(2),
         people: [...g.net.players.values()].map((p) => ({
-          name: p.name, slot: p.slot, seen: !!p.state, at: p.state ? [Math.round(p.state.x), Math.round(p.state.z)] : null, mode: p.state?.mode, visible: g.remotes.get(p.id)?.fisher.root.visible ?? false,
+          name: p.name, slot: p.slot, seen: !!p.state, at: p.state ? [Math.round(p.state.x), Math.round(p.state.z)] : null, mode: p.state?.mode, visible: g.friends.remotes.get(p.id)?.fisher.root.visible ?? false,
         })),
       };
     });

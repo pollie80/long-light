@@ -75,6 +75,8 @@ export function ridged(x: number, y: number, octaves = 4): number {
   return s / n;
 }
 
+/** An angle brought back into -pi..pi. */
+export const wrapAngle = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 export const clamp = (x: number, a = 0, b = 1) => Math.min(b, Math.max(a, x));
 export const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 export const smoothstep = (a: number, b: number, x: number) => {

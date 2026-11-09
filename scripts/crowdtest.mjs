@@ -94,9 +94,9 @@ await Promise.all(friends.map((p, i) => p.evaluate((k) => {
   g.fisher.root.rotation.set(0, g.facing, 0);
   g.fisher.root.updateMatrixWorld(true);
 }, i)));
-await host.evaluate(() => { __ll.place(-4, 0, 1.57); __ll.setHour(18.3); __ll.game.yaw = 1.57; __ll.game.pitch = 0.16; });
+await host.evaluate(() => { __ll.place(-4, 0, 1.57); __ll.setHour(18.3); __ll.game.cam.yaw = 1.57; __ll.game.cam.pitch = 0.16; });
 await wait(4500);
-const figures = await host.evaluate(() => [...__ll.game.remotes.values()].filter((r) => r.fisher.root.visible).length);
+const figures = await host.evaluate(() => [...__ll.game.friends.remotes.values()].filter((r) => r.fisher.root.visible).length);
 check('host sees all seven figures', figures === FRIENDS, String(figures));
 const tags = await host.evaluate(() => document.querySelectorAll('.nameTag').length);
 check('and seven name tags', tags === FRIENDS, String(tags));

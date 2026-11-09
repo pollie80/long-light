@@ -47,10 +47,10 @@ check('cursor hidden while captured', await page.evaluate(() => document.body.cl
 
 // Sensitivity: same movement, double the setting, double the turn.
 const turn = async () => {
-  const before = await page.evaluate(() => __ll.game.yaw);
+  const before = await page.evaluate(() => __ll.game.cam.yaw);
   await page.evaluate(() => window.dispatchEvent(new MouseEvent('mousemove', { movementX: 200, movementY: 0 })));
   await wait(120);
-  return Math.abs((await page.evaluate(() => __ll.game.yaw)) - before);
+  return Math.abs((await page.evaluate(() => __ll.game.cam.yaw)) - before);
 };
 await page.evaluate(() => { __ll.game.save.sensitivity = 1; __ll.game.input.sensitivity = 1; });
 const t1 = await turn();
@@ -71,12 +71,12 @@ await wait(2600);
 const req = await page.evaluate(() => window.__requests);
 check('recaptures after Chrome refuses three times', await locked(), `${req} requests`);
 
-const before = await page.evaluate(() => __ll.game.yaw);
+const before = await page.evaluate(() => __ll.game.cam.yaw);
 await page.evaluate(() => { __ll.game.openMenu(); });
 await wait(300);
 await page.evaluate(() => window.dispatchEvent(new MouseEvent('mousemove', { movementX: 300, movementY: 0 })));
 await wait(150);
-check('moving the mouse in the menu does not turn the view', Math.abs((await page.evaluate(() => __ll.game.yaw)) - before) < 0.001);
+check('moving the mouse in the menu does not turn the view', Math.abs((await page.evaluate(() => __ll.game.cam.yaw)) - before) < 0.001);
 await page.evaluate(() => __ll.game.closeMenus());
 await click();
 await wait(600);

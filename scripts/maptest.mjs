@@ -46,7 +46,7 @@ for (const map of only) {
   check(`${map}: the path works`, Math.hypot(c[0] - b[0], c[1] - b[1]) > 3);
   await page.keyboard.press('KeyQ');
   // Sunset from the jetty, then out on the water, then noon.
-  await page.evaluate(() => { __ll.setHour(18.15); __ll.place(-12, 0, 1.57); __ll.game.yaw = 1.57; __ll.game.pitch = 0.12; });
+  await page.evaluate(() => { __ll.setHour(18.15); __ll.place(-12, 0, 1.57); __ll.game.cam.yaw = 1.57; __ll.game.cam.pitch = 0.12; });
   await wait(4500);
   await shot('sunset-jetty');
   const fps = async () => page.evaluate(async () => {
@@ -57,17 +57,17 @@ for (const map of only) {
     return { fps: Math.round(n / 2.5), tris: r.render.triangles, calls: r.render.calls, res: `${__ll.game.pipe.w}x${__ll.game.pipe.h}` };
   });
   console.log(`  ${map} on the jetty:`, JSON.stringify(await fps()));
-  await page.evaluate(() => { __ll.setHour(12.2); __ll.game.yaw = 1.2; });
+  await page.evaluate(() => { __ll.setHour(12.2); __ll.game.cam.yaw = 1.2; });
   await wait(3500);
   await shot('noon-jetty');
   await page.evaluate(() => { __ll.board(); });
   await wait(1800);
-  await page.evaluate(() => { __ll.boatAt(-130, 20, 1.57); __ll.setHour(17.6); __ll.game.yaw = 1.3; __ll.game.pitch = 0.08; });
+  await page.evaluate(() => { __ll.boatAt(-130, 20, 1.57); __ll.setHour(17.6); __ll.game.cam.yaw = 1.3; __ll.game.cam.pitch = 0.08; });
   await wait(3500);
   await shot('boat');
   console.log(`  ${map} in the boat:`, JSON.stringify(await fps()));
   check(`${map}: boat afloat`, Math.abs(await page.evaluate(() => __ll.game.boat.y)) < 0.5);
-  await page.evaluate(() => { __ll.game.ui.hooks.setRowSpeed(1); __ll.setHour(13); __ll.boatAt(-60, 40, 0.6); __ll.game.yaw = -1.9; __ll.game.pitch = 0.05; });
+  await page.evaluate(() => { __ll.game.ui.hooks.setRowSpeed(1); __ll.setHour(13); __ll.boatAt(-60, 40, 0.6); __ll.game.cam.yaw = -1.9; __ll.game.cam.pitch = 0.05; });
   await wait(3000);
   await shot('shore');
   // The buildings and the things that only belong here.
@@ -77,18 +77,18 @@ for (const map of only) {
     await new Promise((f) => setTimeout(f, 1900));
     __ll.setHour(11);
     __ll.place(99, -18, -1.2);
-    g.yaw = -1.25;
-    g.pitch = 0.02;
+    g.cam.yaw = -1.25;
+    g.cam.pitch = 0.02;
   });
   await wait(2500);
   await shot('house');
-  await page.evaluate(() => { const g = __ll.game; __ll.place(42, 14, 1.9); g.yaw = 1.9; g.pitch = 0.12; __ll.setHour(9.5); });
+  await page.evaluate(() => { const g = __ll.game; __ll.place(42, 14, 1.9); g.cam.yaw = 1.9; g.cam.pitch = 0.12; __ll.setHour(9.5); });
   await wait(2500);
   await shot('beach');
   await page.evaluate(() => { const g = __ll.game; __ll.board(); });
   await wait(1800);
   // The picture on the picker.
-  await page.evaluate(() => { __ll.setHour(17.9); __ll.boatAt(-40, 12, 1.4); __ll.game.yaw = 1.6; __ll.game.pitch = 0.06; document.getElementById('ui').style.display = 'none'; });
+  await page.evaluate(() => { __ll.setHour(17.9); __ll.boatAt(-40, 12, 1.4); __ll.game.cam.yaw = 1.6; __ll.game.cam.pitch = 0.06; document.getElementById('ui').style.display = 'none'; });
   await wait(3500);
   await shot('card');
   await page.evaluate(() => { document.getElementById('ui').style.display = ''; });

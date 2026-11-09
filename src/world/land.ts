@@ -240,3 +240,6 @@ export function pathPoint(s: number): PathSample {
   const f = (t - a.s) / Math.max(1e-5, b.s - a.s);
   return { x: lerp(a.x, b.x, f), z: lerp(a.z, b.z, f), y: lerp(a.y, b.y, f), s: t };
 }
+
+/** Where every visit starts, part way down the path to the jetty. */
+export const START = pathPoint(9);

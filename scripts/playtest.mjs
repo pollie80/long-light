@@ -54,7 +54,7 @@ check('Q strolls by itself', Math.hypot(p2.px - p1.px, p2.pz - p1.pz) > 2.5, `mo
 await page.keyboard.press('KeyQ');
 
 // Running is the normal pace, and Shift walks.
-await page.evaluate(() => { __ll.place(0, 0, 1.57); __ll.game.yaw = 1.57; });
+await page.evaluate(() => { __ll.place(0, 0, 1.57); __ll.game.cam.yaw = 1.57; });
 await wait(300);
 await page.keyboard.down('KeyW');
 await wait(1500);
@@ -94,7 +94,7 @@ await wait(300);
 await page.keyboard.press('KeyR');
 await page.evaluate(() => __ll.game.fishing.reelIn());
 await wait(300);
-await page.evaluate(() => { __ll.place(-8, 0, 1.57); __ll.game.yaw = 1.57; });
+await page.evaluate(() => { __ll.place(-8, 0, 1.57); __ll.game.cam.yaw = 1.57; });
 await wait(400);
 await page.keyboard.down('KeyW');
 await wait(700);
@@ -108,7 +108,7 @@ await wait(1100);
 // Speed settings, through the real menu sliders.
 const slider = (id, v) => page.evaluate(([i, val]) => { const e = document.getElementById(i); e.value = val; e.dispatchEvent(new Event('input')); }, [id, v]);
 const walkRun = async () => {
-  await page.evaluate(() => { __ll.place(0, 0, 1.57); __ll.game.yaw = 1.57; });
+  await page.evaluate(() => { __ll.place(0, 0, 1.57); __ll.game.cam.yaw = 1.57; });
   await wait(300);
   const a = await s();
   await page.keyboard.down('KeyW');
@@ -135,20 +135,20 @@ await page.evaluate(() => __ll.place(-12, 0, 1.57));
 await wait(400);
 await page.keyboard.press('KeyG');
 await wait(500);
-check('G brings out the gun', await page.evaluate(() => __ll.game.gunOut && __ll.game.fisher.gun.visible && !__ll.game.fisher.rod.visible));
+check('G brings out the gun', await page.evaluate(() => __ll.game.guns.gunOut && __ll.game.fisher.gun.visible && !__ll.game.fisher.rod.visible));
 check('with sights on screen', await page.locator('#sights').isVisible());
 await shot('gun-out');
 // Put a bird straight down the sights, as a flock would pass.
 const shootOne = async () => {
   await page.evaluate(() => {
     const g = __ll.game;
-    g.pitch = -0.5;
+    g.cam.pitch = -0.5;
     g.hunt.nextFlock = 0;
   });
   await wait(250);
   await page.evaluate(() => {
     const g = __ll.game;
-    const dir = g.shotDir();
+    const dir = g.guns.shotDir();
     const birds = g.hunt.birds.filter((b) => b.alive);
     const b = birds[0] ?? g.hunt.birds[0];
     b.active = true;
@@ -167,22 +167,22 @@ const birds0 = await page.evaluate(() => Object.values(__ll.game.save.birds).red
 await shootOne();
 const birds1 = await page.evaluate(() => Object.values(__ll.game.save.birds).reduce((a, b) => a + b, 0));
 check('a shot brings a bird down', birds1 > birds0, `${birds0} then ${birds1}`);
-check('and uses a round', (await page.evaluate(() => __ll.game.ammo.pistol)) === 6);
+check('and uses a round', (await page.evaluate(() => __ll.game.guns.ammo.pistol)) === 6);
 await shot('gun-fired');
 await shootOne();
-check('two shots use two rounds', (await page.evaluate(() => __ll.game.ammo.pistol)) === 5);
+check('two shots use two rounds', (await page.evaluate(() => __ll.game.guns.ammo.pistol)) === 5);
 for (let i = 0; i < 5; i++) {
   await page.mouse.down();
   await page.mouse.up();
   await wait(170);
 }
-check('seven empty it', (await page.evaluate(() => __ll.game.ammo.pistol)) === 0);
+check('seven empty it', (await page.evaluate(() => __ll.game.guns.ammo.pistol)) === 0);
 await wait(2000);
-check('then it reloads', (await page.evaluate(() => __ll.game.ammo.pistol)) === 7);
-await page.evaluate(() => { __ll.game.pitch = 0; });
+check('then it reloads', (await page.evaluate(() => __ll.game.guns.ammo.pistol)) === 7);
+await page.evaluate(() => { __ll.game.cam.pitch = 0; });
 await page.keyboard.press('KeyG');
 await wait(400);
-check('G puts it away', await page.evaluate(() => !__ll.game.gunOut && !__ll.game.fisher.gun.visible));
+check('G puts it away', await page.evaluate(() => !__ll.game.guns.gunOut && !__ll.game.fisher.gun.visible));
 await page.keyboard.down('Space');
 await wait(500);
 check('and casting works again', (await s()).fish === 'charge');
@@ -207,12 +207,12 @@ const gapLand = await handGap();
 check('patting ashore puts a hand on the pet', gapLand < 0.22, `${gapLand.toFixed(2)} m`);
 await shot('pat-land');
 await wait(1800);
-check('and it finishes by itself', (await page.evaluate(() => __ll.game.patT)) <= 0);
+check('and it finishes by itself', (await page.evaluate(() => __ll.game.social.patT)) <= 0);
 
 // The pet keeps up, on land and on the jetty.
 const petGap = () => page.evaluate(() => __ll.game.pet.worldPos().distanceTo(__ll.game.fisher.root.position));
 check('a pet is there', await page.evaluate(() => __ll.game.pet.exists));
-await page.evaluate(() => { __ll.place(10, 0, 1.57); __ll.game.yaw = 1.57; });
+await page.evaluate(() => { __ll.place(10, 0, 1.57); __ll.game.cam.yaw = 1.57; });
 await wait(600);
 await page.keyboard.down('KeyW');
 await wait(2500);
@@ -311,7 +311,7 @@ await shot('pat-boat');
 await page.keyboard.down('KeyW');
 await wait(300);
 await page.keyboard.up('KeyW');
-check('moving off stops the pat', (await page.evaluate(() => __ll.game.patT)) <= 0);
+check('moving off stops the pat', (await page.evaluate(() => __ll.game.social.patT)) <= 0);
 await wait(800);
 
 // Rowing speed.
@@ -422,8 +422,8 @@ check('a fish you can see swims to the bobber', coming.a > 0 && coming.b < comin
 await page.evaluate(() => {
   const g = __ll.game;
   const l = g.fishing.lure;
-  g.yaw = Math.atan2(-(l.x - g.boat.x), -(l.z - g.boat.z));
-  g.pitch = 0.42;
+  g.cam.yaw = Math.atan2(-(l.x - g.boat.x), -(l.z - g.boat.z));
+  g.cam.pitch = 0.42;
 });
 await wait(700);
 await shot('11b-fish-coming');

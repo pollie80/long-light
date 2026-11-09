@@ -53,11 +53,11 @@ await axes([0, 0, 0, 0]);
 const a1 = await s();
 check('left stick walks', Math.hypot(a1.px - a0.px, a1.pz - a0.pz) > 2.5);
 
-const y0 = await page.evaluate(() => __ll.game.yaw);
+const y0 = await page.evaluate(() => __ll.game.cam.yaw);
 await axes([0, 0, 1, 0]);
 await wait(600);
 await axes([0, 0, 0, 0]);
-check('right stick looks', Math.abs((await page.evaluate(() => __ll.game.yaw)) - y0) > 0.3);
+check('right stick looks', Math.abs((await page.evaluate(() => __ll.game.cam.yaw)) - y0) > 0.3);
 
 const b0 = await s();
 await button(TRIANGLE);
