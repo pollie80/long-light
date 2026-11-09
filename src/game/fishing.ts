@@ -10,6 +10,7 @@ import { disposeFish, fishModel } from './fishart';
 import type { Water } from '../world/water';
 import type { AudioWorld } from '../audio/audio';
 import { CharacterLook, choiceOf } from '../actors/look';
+import { DifficultyRules, RULES, SWEET_HALF } from './difficulty';
 
 export type FishState = 'idle' | 'charge' | 'flight' | 'wait' | 'bite' | 'reel' | 'landed' | 'released';
 
@@ -167,6 +168,23 @@ export class Fishing {
   private rodBaseSeen = new THREE.Vector3();
   private previewing = false;
   seen: (id: string) => boolean = () => false;
+  /** How the fishing plays: Easy, Relaxed or Challenging. */
+  rules: DifficultyRules = RULES.relaxed;
+  /** Challenging: the cast power swings to and fro, and this is where its sweet spot sits. */
+  sweetAt = 0.7;
+  private chargeDir = 1;
+  /** The last cast was let go in the sweet spot. */
+  perfect = false;
+  /** How hard the line is pulling, 0 to 1. At 1 it snaps. Challenging only. */
+  tension = 0;
+  /** Seconds left of the fish's run, when it pulls line off the reel, and until the next one. */
+  runT = 0;
+  runGap = 0;
+  /** Counts fish scared off by a strike at nothing, so the one in the water can bolt. */
+  spooks = 0;
+  onCast: ((perfect: boolean) => void) | null = null;
+  onSpook: (() => void) | null = null;
+  onSnap: (() => void) | null = null;
 
   constructor(scene: THREE.Object3D, lineMat: THREE.Material) {
     this.scene = scene;
@@ -220,6 +238,11 @@ export class Fishing {
     return 5 + 115 * Math.pow(r, 1.7);
   }
 
+  /** The next wait, for this mode and this cast. */
+  private nextWait(): number {
+    return Fishing.biteWait(this.rnd()) * this.rules.waitScale * (this.perfect ? 0.6 : 1);
+  }
+
   get active(): boolean {
     return this.state !== 'idle';
   }
@@ -235,11 +258,14 @@ export class Fishing {
     this.previewing = false;
     this.state = 'charge';
     this.charge = 0;
+    this.chargeDir = 1;
+    this.sweetAt = 0.5 + this.rnd() * 0.38;
   }
 
   /** Release the cast. Lands `range` metres out along `dir`, on the water. */
   release(from: THREE.Vector3, dir: THREE.Vector3, audio: AudioWorld) {
-    const range = 6 + this.charge * 24;
+    this.perfect = this.rules.castSweet && Math.abs(this.charge - this.sweetAt) <= SWEET_HALF;
+    const range = (6 + this.charge * 24) * (this.perfect ? 1.12 : 1);
     this.lureFrom.copy(from);
     this.lureTo.set(from.x + dir.x * range, 0, from.z + dir.z * range);
     // Pull in short of land, so a cast never rests on the grass.
@@ -253,6 +279,7 @@ export class Fishing {
     this.bobber.visible = true;
     this.line.visible = true;
     audio.castWhoosh(this.charge);
+    this.onCast?.(this.perfect);
   }
 
   reelIn() {
@@ -273,7 +300,19 @@ export class Fishing {
     const swell = swellAt(this.lure.x, this.lure.z, t);
     switch (this.state) {
       case 'charge':
-        this.charge = Math.min(1, this.charge + dt * 0.62);
+        if (this.rules.castSweet) {
+          // Up and back down again: let go at the right moment.
+          this.charge += dt * 0.95 * this.chargeDir;
+          if (this.charge >= 1) {
+            this.charge = 1;
+            this.chargeDir = -1;
+          } else if (this.charge <= 0) {
+            this.charge = 0;
+            this.chargeDir = 1;
+          }
+        } else {
+          this.charge = Math.min(1, this.charge + dt * 0.62);
+        }
         break;
       case 'flight': {
         this.flightT += dt;
@@ -286,12 +325,23 @@ export class Fishing {
           this.splashAt(water, audio, 0.25);
           this.state = 'wait';
           // A patient wait: as little as five seconds, as long as two minutes, most often under one.
-          this.waitT = Fishing.biteWait(this.rnd());
+          this.waitT = this.nextWait();
           this.nibbleT = 2.5 + this.rnd() * 4;
         }
         break;
       }
       case 'wait': {
+        if (this.rules.earlySpooks && actionPressed) {
+          // Struck at a nibble: whatever was coming is gone, and the next one is a while off.
+          this.spooks += 1;
+          this.waitT = this.nextWait() + 6;
+          this.nibbleT = 3;
+          this.preset = null;
+          this.presetSize = 0;
+          this.dipV = -1.2;
+          water.splash(this.lure.x, this.lure.z, 0.3, 0.06);
+          this.onSpook?.();
+        }
         this.waitT -= dt;
         this.nibbleT -= dt;
         if (this.nibbleT <= 0 && this.waitT > 1.5) {
@@ -301,7 +351,7 @@ export class Fishing {
         }
         if (this.waitT <= 0) {
           this.state = 'bite';
-          this.biteT = 9;
+          this.biteT = this.rules.biteWindow;
           this.biteAge = 0;
           this.species = this.preset ?? pickCatch(zoneAt(this.lure.x, this.lure.z, hour), hour, this.rnd, this.seen);
           this.size = this.preset && this.presetSize > 0 ? this.presetSize : this.species.length * (0.82 + this.rnd() * 0.42);
@@ -322,7 +372,7 @@ export class Fishing {
           this.dipV = -1.7;
           water.splash(this.lure.x, this.lure.z, 0.3, 0.05);
         }
-        if (actionPressed) {
+        if (actionPressed || (this.rules.autoHook && this.biteAge > 0.5)) {
           this.state = 'reel';
           this.strike = this.biteAge < 0.8;
           this.onHook?.(this.strike);
@@ -331,7 +381,10 @@ export class Fishing {
           this.leapT = 1.6 + this.rnd() * 2.4;
           this.fightT = 0;
           // Well hooked, it comes in quicker.
-          this.fightDur = (this.species?.fight ?? 7) * (this.strike ? 0.7 : 1);
+          this.fightDur = (this.species?.fight ?? 7) * (this.strike ? 0.7 : 1) * this.rules.fightScale;
+          this.tension = 0;
+          this.runT = 0;
+          this.runGap = 1.8 + this.rnd() * 2;
           this.fishDist = Math.hypot(this.lure.x - rodBase.x, this.lure.z - rodBase.z);
           this.fishAng = Math.atan2(this.lure.z - rodBase.z, this.lure.x - rodBase.x);
           this.model = this.species ? fishModel(this.species, this.size) : null;
@@ -340,7 +393,7 @@ export class Fishing {
           this.splashAt(water, audio, 0.55);
         } else if (this.biteT <= 0) {
           this.state = 'wait';
-          this.waitT = Fishing.biteWait(this.rnd());
+          this.waitT = this.nextWait();
           this.nibbleT = 3;
           this.onSlip?.();
         }
@@ -348,8 +401,44 @@ export class Fishing {
       }
       case 'reel': {
         this.fightT += dt;
-        const speed = (this.fishDist + 6) / (this.fightDur + 1) * (actionHeld ? 1 : -0.1);
-        this.fishDist = Math.max(0, this.fishDist - speed * dt);
+        let pull = actionHeld ? 1 : -this.rules.slack;
+        if (this.rules.tension) {
+          // Now and then it runs. Reel against a run and the line takes the strain; let it go and it takes line instead.
+          if (this.runT > 0) {
+            this.runT -= dt;
+            if (!actionHeld) pull = -0.55;
+          } else {
+            this.runGap -= dt;
+            if (this.runGap <= 0 && this.fishDist > 4 && this.leapK < 0) {
+              this.runT = 1 + this.rnd() * 0.9;
+              this.runGap = 2.6 + this.rnd() * 3.2;
+              this.splashAt(water, audio, 0.35);
+            }
+          }
+          if (!actionHeld) this.tension = Math.max(0, this.tension - dt * 0.6);
+          else if (this.runT > 0) this.tension += dt * 0.9;
+          else if (this.leapK >= 0) this.tension += dt * 0.7;
+          else this.tension += (0.35 - this.tension) * (1 - Math.exp(-dt * 1.2));
+          if (this.tension >= 1) {
+            // Snapped. The fish goes back to the water, heading away.
+            const sp = this.species;
+            const ax = this.lure.x - rodBase.x;
+            const az = this.lure.z - rodBase.z;
+            const lx = this.lure.x;
+            const lz = this.lure.z;
+            const size = this.size;
+            this.tension = 0;
+            this.runT = 0;
+            this.splashAt(water, audio, 0.6);
+            audio.snap();
+            this.reelIn();
+            if (sp) this.onFreed?.(sp, lx, lz, Math.atan2(-ax, -az), size);
+            this.onSnap?.();
+            break;
+          }
+        }
+        const speed = (this.fishDist + 6) / (this.fightDur + 1) * pull;
+        this.fishDist = Math.max(0, Math.min(34, this.fishDist - speed * dt));
         // The fish swings from side to side, and you just let it.
         const wander = Math.sin(this.fightT * 0.9) * 0.34 + Math.sin(this.fightT * 2.13) * 0.11;
         const ang = this.fishAng + wander * Math.min(1, this.fishDist / 7);
@@ -376,7 +465,7 @@ export class Fishing {
         // Now and then it comes clean out of the water, shakes, and goes back in with a smack.
         if (this.leapK < 0) {
           this.leapT -= dt;
-          if (this.leapT <= 0 && this.fishDist > 3.5 && this.leaps < 2) {
+          if (this.leapT <= 0 && this.fishDist > 3.5 && this.leaps < 2 && this.runT <= 0) {
             this.leapK = 0;
             this.leaps += 1;
             this.splashAt(water, audio, 0.5);

@@ -604,6 +604,14 @@ export class AudioWorld {
     for (const [m, d] of [[79, 0], [84, 0.12]] as [number, number][]) this.piano(m, t + d, 0.5, 0);
   }
 
+  /** The line parting: a bright twang, then the reel spinning loose. */
+  snap() {
+    if (!this.ctx) return;
+    this.thump(1900, 420, 0.16, 0.22);
+    this.burst(this.noiseWhite, 0.05, 0.16, { type: 'highpass', f0: 3200 });
+    for (let i = 0; i < 6; i++) this.burst(this.noiseWhite, 0.012, 0.03 - i * 0.004, { type: 'bandpass', f0: 4300, q: 5 }, { delay: 0.12 + i * 0.05 });
+  }
+
   reelClick() {
     if (!this.ctx) return;
     this.burst(this.noiseWhite, 0.012, 0.024, { type: 'bandpass', f0: 4300, q: 5 });

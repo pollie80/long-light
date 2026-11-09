@@ -50,6 +50,7 @@ export class Swimmers {
   private fish: Swimmer[] = [];
   private rnd = mulberry32(31337);
   private lastState = 'idle';
+  private lastSpooks = 0;
   private want = Q.id === 'low' ? 3 : 5;
 
   constructor(private seen: (id: string) => boolean) {}
@@ -240,6 +241,15 @@ export class Swimmers {
     const state = f.state;
     const settled = state === 'wait' && this.lastState !== 'wait';
     const lure = f.lure;
+    // Struck at too soon: the one coming in bolts.
+    if (f.spooks !== this.lastSpooks) {
+      this.lastSpooks = f.spooks;
+      if (this.approacher) {
+        this.approacher.mode = 'flee';
+        this.approacher.heading += Math.PI;
+        this.approacher = null;
+      }
+    }
     if (state === 'wait' && !this.approacher) {
       // The nearest one in sight sets off when it has just time enough to arrive for the bite.
       let best: Swimmer | null = null;

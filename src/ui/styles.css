@@ -50,6 +50,16 @@ kbd { font-family: var(--serif); font-style: normal; font-weight: 500; font-size
 /* Cast strength */
 #charge { position: fixed; left: 50%; bottom: 14vh; transform: translateX(-50%); width: 200px; height: 2px; background: rgba(255, 244, 220, 0.25); border-radius: 2px; box-shadow: 0 0 10px rgba(20, 8, 16, 0.4); }
 #charge i { position: absolute; left: 0; top: -0.5px; bottom: -0.5px; background: #fff0cc; border-radius: 2px; box-shadow: 0 0 8px rgba(255, 220, 160, 0.9); }
+/* Challenging: the window to let go in. It lights up while the power is inside it. */
+#charge .sweet { position: absolute; top: -4px; bottom: -4px; border-radius: 3px; background: rgba(150, 230, 170, 0.32); box-shadow: inset 0 0 0 1px rgba(170, 245, 190, 0.75); transition: background 0.12s; }
+#charge.inSweet .sweet { background: rgba(150, 240, 175, 0.75); box-shadow: 0 0 10px rgba(150, 240, 175, 0.9); }
+/* Challenging: the strain on the line while reeling. */
+#tension { position: fixed; left: 50%; bottom: 14vh; transform: translateX(-50%); width: 200px; height: 4px; background: linear-gradient(90deg, rgba(255, 244, 220, 0.25) 72%, rgba(232, 96, 56, 0.55) 72%); border-radius: 2px; box-shadow: 0 0 10px rgba(20, 8, 16, 0.4); }
+#tension i { position: absolute; left: 0; top: 0; bottom: 0; background: #fff0cc; border-radius: 2px; box-shadow: 0 0 8px rgba(255, 220, 160, 0.9); transition: background 0.2s; }
+#tension.high i { background: #e8743c; box-shadow: 0 0 8px rgba(255, 120, 60, 0.9); }
+#tension.running i { background: #f2a04e; box-shadow: 0 0 8px rgba(255, 150, 70, 0.9); }
+#tension.running { animation: tensionPulse 0.45s ease-in-out infinite alternate; }
+@keyframes tensionPulse { to { box-shadow: 0 0 16px rgba(255, 90, 50, 0.95); } }
 
 /* Paper, shared by the catch card, journal and menu */
 .paper { color: var(--ink); background-color: var(--paper); background-image: radial-gradient(ellipse at 20% 15%, rgba(255, 250, 235, 0.65), transparent 60%), radial-gradient(ellipse at 85% 90%, rgba(160, 120, 70, 0.26), transparent 60%), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.3 0 0 0 0 0.2 0 0 0 0 0.1 0 0 0 .13 0'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23n)'/%3E%3C/svg%3E"); box-shadow: 0 18px 60px rgba(10, 4, 10, 0.5), inset 0 0 70px rgba(140, 100, 60, 0.25); pointer-events: auto; }
@@ -190,6 +200,9 @@ kbd { font-family: var(--serif); font-style: normal; font-weight: 500; font-size
 .pills button { flex: 1; font: 500 18px var(--serif); padding: 5px 2px; background: rgba(255, 252, 240, 0.55); border: 1px solid rgba(42, 31, 28, 0.2); border-radius: 6px; cursor: pointer; color: var(--ink); }
 .pills button:hover { border-color: #9c3f24; }
 .pills button.on { background: #9c3f24; border-color: #9c3f24; color: var(--light); }
+#mModeRow { grid-template-columns: 26px auto 1fr; }
+#mMode { padding: 0; }
+#mMode button { font-size: 16.5px; padding: 3px 2px; }
 #menu h4 small { text-transform: none; letter-spacing: 0; font-size: 14px; }
 #sights { position: fixed; inset: 0; pointer-events: none; }
 #sights i { position: absolute; left: 50%; top: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px; border: 1.5px solid rgba(255, 246, 224, 0.75); border-radius: 50%; box-shadow: 0 0 3px rgba(20, 8, 16, 0.7); }

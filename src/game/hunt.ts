@@ -59,6 +59,8 @@ export class Hunt {
   private neonMats = new Map<number, THREE.ShaderMaterial>();
   /** The hour, for which birds are about; and which have been brought down before. */
   hour = 12;
+  /** Multiplies how fast birds fly, from the mode. */
+  speedK = 1;
   seen: (id: string) => boolean = () => false;
   /** A rare one has just appeared somewhere in the sky. */
   onRare: ((kind: BirdKind) => void) | null = null;
@@ -193,7 +195,7 @@ export class Hunt {
       const rank = Math.ceil(i / 2);
       const wing = i % 2 ? 1 : -1;
       b.root.position.set(startX - dir.x * rank * 3 + side.x * rank * wing * 2.4, alt + (this.rnd() - 0.5) * 1.5, startZ - dir.z * rank * 3 + side.z * rank * wing * 2.4);
-      b.vel.copy(dir).multiplyScalar(b.kind.speed);
+      b.vel.copy(dir).multiplyScalar(b.kind.speed * this.speedK);
       b.root.rotation.set(0, Math.atan2(-dir.x, -dir.z), 0);
       b.root.visible = true;
       b.active = true;

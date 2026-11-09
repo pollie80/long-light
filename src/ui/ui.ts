@@ -7,6 +7,7 @@ import { BirdEntry, BirdKind, birdsOf, neonBird } from '../game/birddata';
 import { paintBird } from '../game/birdart';
 import { BOAT_PANEL, LOOK_PANEL, PET_PANEL, Wardrobe, WardrobeHooks, WardrobePanel } from './wardrobe';
 import { ICON } from './icons';
+import { Difficulty, DIFFICULTY_ORDER, RULES, SWEET_HALF } from '../game/difficulty';
 import { MAP, MAP_ORDER, MapId, MAPS } from '../world/maps';
 import { Q, QUALITIES, QUALITY_ORDER, QualityId } from '../core/quality';
 import coveImg from '../../assets/place-cove.jpg?inline';
@@ -38,6 +39,8 @@ export interface MenuHooks {
   /** The birds brought down, by kind. */
   birdLog(): Record<string, BirdEntry>;
   setWeather(v: boolean): void;
+  setDifficulty(d: Difficulty): void;
+  getDifficulty(): Difficulty;
   getWeather(): boolean;
   quit(): void;
   savePainting(): void;
@@ -174,7 +177,8 @@ export class UI {
         </svg>
         <span id="clockText"></span>
       </div>
-      <div id="charge" class="fade hidden"><i></i></div>
+      <div id="charge" class="fade hidden"><span class="sweet gone"></span><i></i></div>
+      <div id="tension" class="fade hidden"><i></i></div>
       <div id="card" class="paper hidden">
         <div class="kicker" id="cKick"></div>
         <div class="tier" id="cTier"></div>
@@ -246,7 +250,8 @@ export class UI {
           <button class="tile" id="mGfx">${ICON.gem}<span>Graphics</span></button>
         </div>
         <div id="mSettings">
-          <h4>World</h4>
+          <h4>Play</h4>
+          <div class="set" id="mModeRow">${ICON.hook}<label>Mode</label><div class="pills" id="mMode">${DIFFICULTY_ORDER.map((d) => `<button data-d="${d}">${RULES[d].label}</button>`).join('')}</div></div>
           <div class="set">${ICON.sun}<label for="timeTrack">Time of day</label><input id="timeTrack" type="range" min="0" max="24" step="0.05"><b id="mTimeV"></b></div>
           <div class="set switch" id="mClock" role="switch" tabindex="0">${ICON.clock}<label>Sun moves by itself</label><span class="sw"><i></i></span></div>
           <div class="set switch" id="mWeather" role="switch" tabindex="0">${ICON.cloud}<label>Changing weather</label><span class="sw"><i></i></span></div>
@@ -399,6 +404,13 @@ export class UI {
       h.sound('tick');
       this.refreshMenu();
     };
+    el('mMode').querySelectorAll<HTMLButtonElement>('button').forEach((b) => {
+      b.onclick = () => {
+        h.setDifficulty(b.dataset.d as Difficulty);
+        h.sound('tick');
+        this.refreshMenu();
+      };
+    });
     el('mWeather').onclick = () => {
       h.setWeather(!h.getWeather());
       h.sound('tick');
@@ -483,7 +495,8 @@ export class UI {
     this.hintT = 0;
   }
 
-  charge(amount: number | null) {
+  /** The cast's power, and in Challenging where its sweet spot is. */
+  charge(amount: number | null, sweet: number | null = null) {
     const c = el('charge');
     if (amount === null) {
       c.classList.add('hidden');
@@ -491,6 +504,28 @@ export class UI {
     }
     c.classList.remove('hidden');
     (c.querySelector('i') as HTMLElement).style.width = `${Math.round(amount * 100)}%`;
+    const s = c.querySelector('.sweet') as HTMLElement;
+    s.classList.toggle('gone', sweet === null);
+    if (sweet !== null) {
+      s.style.left = `${((sweet - SWEET_HALF) * 100).toFixed(1)}%`;
+      s.style.width = `${(SWEET_HALF * 200).toFixed(1)}%`;
+      c.classList.toggle('inSweet', Math.abs(amount - sweet) <= SWEET_HALF);
+    } else {
+      c.classList.remove('inSweet');
+    }
+  }
+
+  /** How hard the line is pulling, in Challenging; red and pulsing while the fish runs. */
+  tension(v: number | null, running = false) {
+    const t = el('tension');
+    if (v === null) {
+      if (!t.classList.contains('hidden')) t.classList.add('hidden');
+      return;
+    }
+    t.classList.remove('hidden');
+    (t.querySelector('i') as HTMLElement).style.width = `${Math.round(Math.min(1, v) * 100)}%`;
+    t.classList.toggle('high', v > 0.72);
+    t.classList.toggle('running', running);
   }
 
   /** Reveal the sun-and-arc clock for a few seconds. */
@@ -775,6 +810,7 @@ export class UI {
     el('mRowV').textContent = `${Math.round(row * 100)}%`;
     el('mAway').classList.toggle('on', h.getMuteAway());
     el('mAway').setAttribute('aria-checked', String(h.getMuteAway()));
+    el('mMode').querySelectorAll<HTMLButtonElement>('button').forEach((b) => b.classList.toggle('on', b.dataset.d === h.getDifficulty()));
     el('mWeather').classList.toggle('on', h.getWeather());
     el('mWeather').setAttribute('aria-checked', String(h.getWeather()));
     el('gCap').querySelectorAll<HTMLButtonElement>('button').forEach((b) => b.classList.toggle('on', Number(b.dataset.cap) === h.getFpsCap()));

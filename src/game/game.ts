@@ -27,6 +27,7 @@ import { Swimmers } from './swimmers';
 import { GUN_ORDER, GUNS, GunKind } from './guns';
 import { BirdEntry, BIRDS } from './birddata';
 import { blendWeather, CALM, weatherAt, WeatherNow } from '../world/weather';
+import { Difficulty, isDifficulty, RULES } from './difficulty';
 import { Fireworks } from '../world/fireworks';
 import { Q, setQuality } from '../core/quality';
 import { MAP, MapId, MAPS, switchMap } from '../world/maps';
@@ -50,14 +51,15 @@ const GRAVITY = 12.5;
 const SPRINT_S = 9;
 const TAP_S = 0.22;
 
-interface Save { journal: Journal; music: number; sfx: number; sensitivity: number; muteAway: boolean; name: string; walkSpeed: number; rowSpeed: number; fpsCap: number; resolution: number; quietAway: boolean; adapt: boolean; showFps: boolean; birds: Record<string, number>; bestShot: number; look?: Partial<CharacterLook>; birdLog: Record<string, BirdEntry>; weather: boolean }
+interface Save { journal: Journal; music: number; sfx: number; sensitivity: number; muteAway: boolean; name: string; walkSpeed: number; rowSpeed: number; fpsCap: number; resolution: number; quietAway: boolean; adapt: boolean; showFps: boolean; birds: Record<string, number>; bestShot: number; look?: Partial<CharacterLook>; birdLog: Record<string, BirdEntry>; weather: boolean; difficulty: Difficulty }
 
 function loadSave(): Save {
-  const d: Save = { journal: {}, music: 0.7, sfx: 0.9, sensitivity: 1, muteAway: true, name: '', walkSpeed: 1, rowSpeed: 1, fpsCap: 60, resolution: 0, quietAway: true, adapt: true, showFps: false, birds: {}, bestShot: 0, birdLog: {}, weather: false };
+  const d: Save = { journal: {}, music: 0.7, sfx: 0.9, sensitivity: 1, muteAway: true, name: '', walkSpeed: 1, rowSpeed: 1, fpsCap: 60, resolution: 0, quietAway: true, adapt: true, showFps: false, birds: {}, bestShot: 0, birdLog: {}, weather: false, difficulty: 'relaxed' };
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (raw) {
       const s: Save = { ...d, ...JSON.parse(raw) };
+      if (!isDifficulty(s.difficulty)) s.difficulty = 'relaxed';
       // Birds brought down before the journal had a page for them.
       for (const [name, count] of Object.entries(s.birds ?? {})) {
         const b = BIRDS.find((x) => x.name === name);
@@ -253,6 +255,14 @@ export class Game {
         this.writeSave();
       },
       getWeather: () => this.save.weather,
+      setDifficulty: (d) => {
+        if (!isDifficulty(d) || d === this.save.difficulty) return;
+        this.save.difficulty = d;
+        this.applyRules();
+        this.writeSave();
+        this.ui.toast(`${RULES[d].label}: ${RULES[d].blurb}`, 3.5);
+      },
+      getDifficulty: () => this.save.difficulty,
       resetJournal: () => {
         this.save.journal = {};
         this.save.birdLog = {};
@@ -872,7 +882,13 @@ export class Game {
     this.fishing.onBite = () => {
       this.ui.prompt(this.input.usingPad ? 'a bite! <kbd>Cross</kbd>' : 'a bite! <kbd>Space</kbd>');
     };
-    this.fishing.onSlip = () => this.ui.toast('It slipped away. No matter.', 3);
+    this.fishing.onSlip = () => this.ui.toast(this.fishing.rules.earlySpooks ? 'Too slow. It slipped away.' : 'It slipped away. No matter.', 3);
+    this.fishing.onCast = (perfect) => {
+      if (perfect) this.ui.toast('Right in the sweet spot.', 1.6);
+    };
+    this.fishing.onSpook = () => this.ui.toast('Too soon. You scared it off.', 2.4);
+    this.applyRules();
+    this.fishing.onSnap = () => this.ui.toast('The line snapped. It got away.', 3);
     this.fishing.onHook = (strike) => {
       if (strike) this.ui.toast('Good strike. Well hooked.', 1.8);
     };
@@ -1351,7 +1367,7 @@ export class Game {
     const pulling = !resting && Math.abs(inp.moveY) + Math.abs(inp.moveX) > 0.05;
     this.sprinting = inp.jog && pulling && !this.winded && this.energy > 0;
     if (this.sprinting) {
-      this.energy = Math.max(0, this.energy - dt / SPRINT_S);
+      this.energy = Math.max(0, this.energy - dt / (SPRINT_S * RULES[this.save.difficulty].sprintScale));
       if (this.energy <= 0) this.winded = true;
     }
     this.sprintK = damp(this.sprintK, this.sprinting ? 1 : 0, 4, dt);
@@ -1539,9 +1555,19 @@ export class Game {
     if (message) this.ui.toast(message, 5);
   }
 
+  /** Hands the chosen mode's rules to the fishing and the birds. */
+  private applyRules() {
+    const r = RULES[this.save.difficulty];
+    this.fishing.rules = r;
+    this.hunt.speedK = r.birdSpeed;
+  }
+
+  private hintedSpook = false;
+
   private handleCast(dt: number, from: THREE.Vector3) {
     const inp = this.input;
     const f = this.fishing;
+    if (f.state !== 'reel') this.ui.tension(null);
     const pressed = inp.was('Space') || inp.was('PadCross') || (this.leftClickPressed());
     switch (f.state) {
       case 'idle':
@@ -1554,7 +1580,7 @@ export class Game {
         break;
       case 'charge': {
         this.chargeT += dt;
-        this.ui.charge(this.fishingShows ? f.charge : null);
+        this.ui.charge(this.fishingShows ? f.charge : null, f.rules.castSweet ? f.sweetAt : null);
         if (!inp.action) {
           this.ui.charge(null);
           if (this.mode === 'walk' && !this.fishingShows) {
@@ -1569,6 +1595,10 @@ export class Game {
         break;
       }
       case 'wait': {
+        if (f.rules.earlySpooks && !this.hintedSpook) {
+          this.hintedSpook = true;
+          this.ui.toast('Wait for a real bite. Strike at a nibble and it swims off.', 4);
+        }
         const k = inp.usingPad ? '<kbd>Circle</kbd>' : '<kbd>R</kbd>';
         this.ui.prompt(`${k} reel in`);
         if (inp.was('KeyR') || inp.was('PadCircle')) {
@@ -1577,9 +1607,13 @@ export class Game {
         }
         break;
       }
-      case 'reel':
-        this.ui.prompt(inp.action ? null : inp.usingPad ? 'hold <kbd>Cross</kbd> to reel' : 'hold <kbd>Space</kbd> to reel');
+      case 'reel': {
+        const key = inp.usingPad ? '<kbd>Cross</kbd>' : '<kbd>Space</kbd>';
+        const running = f.rules.tension && f.runT > 0;
+        this.ui.prompt(running ? `it's running! let go of ${key}` : inp.action ? null : `hold ${key} to reel`);
+        this.ui.tension(f.rules.tension ? f.tension : null, running);
         break;
+      }
       case 'landed':
         if (pressed) {
           f.letGo();
@@ -1772,9 +1806,11 @@ export class Game {
     if (this.ammo[kind] <= 0 || this.reloadT > 0 || this.cycleT > 0) return;
     // The bullet goes where the sights were. The kick comes after.
     const dir = this.shotDir();
-    const hit = this.hunt.fire(this.camera.position, dir, spec.reach, spec.spread);
+    const aim = RULES[this.save.difficulty].aimSpread;
+    const spread = (a: number) => spec.spread(a) * aim;
+    const hit = this.hunt.fire(this.camera.position, dir, spec.reach, spread);
     if (!hit && dir.y < -0.02) {
-      const fishHit = this.swimmers.fire(this.camera.position, dir, Math.min(spec.reach, 70), spec.spread);
+      const fishHit = this.swimmers.fire(this.camera.position, dir, Math.min(spec.reach, 70), spread);
       const t = -this.camera.position.y / dir.y;
       if (t > 0 && t < spec.reach) {
         const x = this.camera.position.x + dir.x * t;

@@ -486,6 +486,88 @@ const glow = await g(() => __ll.game.hunt.birds.filter((b) => b.active && b.neon
 check('now and then after dark a flock glows', glow > 0, `${glow} glowing`);
 await g(() => { __ll.setHour(11); });
 
+// ---- Easy, Relaxed and Challenging ---------------------------------------------------------------
+const fstate = () => g(() => __ll.game.fishing.state);
+const pickMode = async (d) => {
+  await g(() => __ll.game.openMenu());
+  await wait(400);
+  await page.locator(`#mMode button[data-d="${d}"]`).click();
+  await wait(300);
+  await g(() => __ll.game.closeMenus());
+  await wait(400);
+};
+check('relaxed is the mode to start with', await g(() => __ll.game.save.difficulty === 'relaxed' && __ll.game.fishing.rules.label === 'Relaxed'));
+await g(() => __ll.game.openMenu());
+await wait(400);
+await page.locator('#mMode button[data-d="challenging"]').click();
+await wait(300);
+check('the menu switches to Challenging and remembers it', await g(() => __ll.game.save.difficulty === 'challenging' && JSON.parse(localStorage.getItem('longlight.save.v1')).difficulty === 'challenging' && document.querySelector('#mMode button[data-d="challenging"]').classList.contains('on') && __ll.game.fishing.rules.tension === true));
+await shot('m1-mode-menu');
+await g(() => __ll.game.closeMenus());
+await wait(400);
+await g(() => { __ll.board(); __ll.boatAt(-60, 20, 1.4); __ll.setHour(11); });
+await wait(800);
+
+// The cast power swings up and back down, with a window to let go in.
+await page.keyboard.down('Space');
+const swing = [];
+for (let i = 0; i < 9; i++) {
+  await wait(180);
+  swing.push(await g(() => __ll.game.fishing.charge));
+}
+const peak = Math.max(...swing);
+const sweetShown = await g(() => __ll.game.fishing.sweetAt > 0.4 && !document.querySelector('#charge .sweet').classList.contains('gone'));
+await shot('m2-sweet-spot');
+await page.keyboard.up('Space');
+check('challenging: the cast swings up and back down, with a sweet spot', peak > 0.9 && swing[swing.length - 1] < peak - 0.15 && sweetShown, swing.map((v) => v.toFixed(2)).join(' '));
+
+// Striking at nothing scares it off.
+for (let i = 0; i < 60 && (await fstate()) !== 'wait'; i++) await wait(50);
+await wait(300);
+const sp0 = await g(() => __ll.game.fishing.spooks);
+await page.keyboard.press('Space');
+await wait(250);
+const sp1 = await g(() => ({ spooks: __ll.game.fishing.spooks, state: __ll.game.fishing.state, wait: +__ll.game.fishing.waitT.toFixed(1), toast: document.getElementById('toast').textContent }));
+check('challenging: a strike with no bite scares the fish off', sp1.spooks === sp0 + 1 && sp1.state === 'wait' && sp1.wait > 6 && /scared/.test(sp1.toast), JSON.stringify(sp1));
+
+// A bite has to be answered quickly.
+await g(() => { __ll.game.fishing.waitT = 0.0001; });
+for (let i = 0; i < 40 && (await fstate()) !== 'bite'; i++) await wait(50);
+await wait(2000);
+check('challenging: a bite left too long slips away', (await fstate()) === 'wait');
+
+// Reeling against a run snaps the line.
+await g(() => { __ll.game.fishing.waitT = 0.0001; });
+for (let i = 0; i < 40 && (await fstate()) !== 'bite'; i++) await wait(50);
+await page.keyboard.down('Space');
+for (let i = 0; i < 20 && (await fstate()) !== 'reel'; i++) await wait(50);
+await g(() => { const f = __ll.game.fishing; f.runT = 3; f.runGap = 99; });
+await wait(450);
+const mid = await g(() => ({ t: +__ll.game.fishing.tension.toFixed(2), shown: !document.getElementById('tension').classList.contains('hidden'), running: document.getElementById('tension').classList.contains('running'), prompt: document.getElementById('prompt').textContent }));
+await shot('m3-tension');
+for (let i = 0; i < 30 && (await fstate()) === 'reel'; i++) await wait(100);
+await page.keyboard.up('Space');
+const snapped = await g(() => ({ state: __ll.game.fishing.state, toast: document.getElementById('toast').textContent, bar: document.getElementById('tension').classList.contains('hidden') }));
+check('challenging: the strain shows, and says to let go while it runs', mid.shown && mid.running && mid.t > 0.25 && /let go/.test(mid.prompt), JSON.stringify(mid));
+check('challenging: reeling against a run snaps the line', snapped.state === 'idle' && /snapped/.test(snapped.toast) && snapped.bar, JSON.stringify(snapped));
+
+// Easy: sooner bites that hook themselves.
+await pickMode('easy');
+await page.keyboard.down('Space');
+await wait(600);
+await page.keyboard.up('Space');
+for (let i = 0; i < 60 && (await fstate()) !== 'wait'; i++) await wait(50);
+const ew = await g(() => __ll.game.fishing.waitT);
+check('easy: bites come sooner', ew > 1.5 && ew <= 48.5, `${ew.toFixed(1)} s`);
+await g(() => { __ll.game.fishing.waitT = 0.0001; });
+for (let i = 0; i < 40 && (await fstate()) !== 'reel'; i++) await wait(100);
+check('easy: a bite hooks itself', (await fstate()) === 'reel');
+await g(() => __ll.game.fishing.reelIn());
+await wait(300);
+
+await pickMode('relaxed');
+check('back to Relaxed: the rules are as they were', await g(() => __ll.game.save.difficulty === 'relaxed' && __ll.game.fishing.rules.biteWindow === 9 && __ll.game.hunt.speedK === 1));
+
 check('no errors in the page', errors.length === 0, errors.slice(0, 3).join(' | '));
 console.log(results.join('\n'));
 console.log(`${results.filter((r) => r.startsWith('PASS')).length}/${results.length} passed`);
