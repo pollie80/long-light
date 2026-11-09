@@ -26,7 +26,8 @@ await page.addInitScript(() => {
     return orig.apply(this, a);
   };
 });
-await page.goto(url);
+// The real lock: test browsers get a stand-in unless they ask, so the other tests never trap the mouse.
+await page.goto(url.includes('?') ? url.replace('?', '?reallock&') : url.replace(/(#|$)/, '?reallock$1'));
 await page.waitForFunction(() => window.__ll?.ready === true, null, { timeout: 240000, polling: 300 });
 await page.bringToFront();
 const results = [];

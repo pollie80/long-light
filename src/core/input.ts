@@ -33,6 +33,30 @@ export class Input {
   wheel = 0;
   private lastTry = 0;
   private failures = 0;
+  /**
+   * A browser driven by a test script never takes the real mouse. On Windows, Chrome holds the cursor inside its
+   * window while the pointer is locked, even a hidden test window, which traps the mouse of whoever is at the
+   * desk. Those browsers get a stand-in lock that behaves the same to the game. `?reallock` asks for the real one.
+   */
+  private fakeLock = navigator.webdriver === true && !/[?&]reallock(?:[=&#]|$)/.test(location.search);
+  private standInTo = false;
+  private standInTimer = 0;
+
+  /** The stand-in lock changes on the next tick, as the real one does, so callers see the same order of events. */
+  private setStandIn(on: boolean) {
+    this.standInTo = on;
+    if (this.standInTimer) return;
+    this.standInTimer = window.setTimeout(() => {
+      this.standInTimer = 0;
+      const was = this.locked;
+      this.locked = this.standInTo;
+      if (this.locked) {
+        this.failures = 0;
+        this.lockUnavailable = false;
+      }
+      if (was !== this.locked) this.onLockChange?.(this.locked);
+    }, 0);
+  }
   usingPad = false;
   anyPress = false;
   onLockChange: ((locked: boolean) => void) | null = null;
@@ -94,6 +118,10 @@ export class Input {
   }
 
   lock() {
+    if (this.fakeLock) {
+      this.setStandIn(true);
+      return;
+    }
     const c = this.canvas as HTMLCanvasElement & { requestPointerLock(o?: unknown): Promise<void> | undefined };
     if (document.pointerLockElement === c) return;
     this.lastTry = performance.now();
@@ -138,6 +166,10 @@ export class Input {
   unlock() {
     // Said at once, so nothing can recapture the mouse between now and the next frame.
     this.wantLock = false;
+    if (this.fakeLock) {
+      this.setStandIn(false);
+      return;
+    }
     if (document.pointerLockElement) document.exitPointerLock();
   }
 
