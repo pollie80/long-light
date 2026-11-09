@@ -17,6 +17,10 @@ export class Input {
   private padAction = false;
   private padPrev: boolean[] = [];
   private mouseDown = false;
+  private rightDown = false;
+  private padAim = false;
+  /** Right mouse or L2 held: looking down the sights or through a scope. */
+  aim = false;
   private accX = 0;
   private accY = 0;
   locked = false;
@@ -53,6 +57,7 @@ export class Input {
     window.addEventListener('blur', () => {
       this.keys.clear();
       this.mouseDown = false;
+      this.rightDown = false;
     });
     window.addEventListener('mousemove', (e) => {
       this.accX += e.movementX;
@@ -61,13 +66,17 @@ export class Input {
     });
     canvas.addEventListener('mousedown', (e) => {
       if (e.button === 0) this.mouseDown = true;
+      if (e.button === 2) this.rightDown = true;
       this.anyPress = true;
-      this.pressed.add('Mouse');
+      // The left button does things; the right one aims.
+      this.pressed.add(e.button === 2 ? 'MouseR' : 'Mouse');
       if (this.wantLock && !this.locked) this.lock();
     });
     window.addEventListener('mouseup', (e) => {
       if (e.button === 0) this.mouseDown = false;
+      if (e.button === 2) this.rightDown = false;
     });
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     canvas.addEventListener('wheel', (e) => {
       this.wheel += e.deltaY;
       e.preventDefault();
@@ -158,6 +167,7 @@ export class Input {
     this.jog = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
 
     this.padAction = false;
+    this.padAim = false;
     const pads = navigator.getGamepads?.() ?? [];
     for (const p of pads) {
       if (!p) continue;
@@ -171,7 +181,7 @@ export class Input {
       lx += rx * dt * 2.4;
       ly += ry * dt * 1.8;
       const b = (i: number) => !!p.buttons[i]?.pressed;
-      // Standard mapping: 0 Cross, 1 Circle, 2 Square, 3 Triangle, 7 R2, 9 Options, 10 L3, 6 L2.
+      // Standard mapping: 0 Cross, 1 Circle, 2 Square, 3 Triangle, 7 R2, 9 Options, 10 L3, 11 R3, 6 L2, 14 and 15 left and right.
       const edge = (i: number, code: string) => {
         if (b(i) && !this.padPrev[i]) {
           this.pressed.add(code);
@@ -192,6 +202,10 @@ export class Input {
       edge(13, 'PadDown');
       edge(7, 'PadR2');
       edge(8, 'PadShare');
+      edge(11, 'PadR3');
+      edge(14, 'PadLeft');
+      edge(15, 'PadRight');
+      if (b(6) || (p.buttons[6]?.value ?? 0) > 0.3) this.padAim = true;
       if (b(0) || b(7)) this.padAction = true;
       if (b(10)) this.jog = true;
       break;
@@ -201,6 +215,7 @@ export class Input {
     this.lookX = lx;
     this.lookY = ly;
     this.action = this.keys.has('Space') || this.mouseDown || this.padAction;
+    this.aim = this.rightDown || this.padAim;
   }
 
   /** Clears one-frame presses. Call at the end of the frame. */

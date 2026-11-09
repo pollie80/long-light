@@ -3,10 +3,11 @@
 import type { PoseMode } from '../actors/fisher';
 import { CharacterLook, cleanLook } from '../actors/look';
 import type { FishState } from '../game/fishing';
+import { GUN_ORDER, GunKind } from '../game/guns';
 import { MAP, MapId } from '../world/maps';
 
 /** Bumped whenever the messages change, so an old copy gets a clear message instead of odd behaviour. */
-export const PROTOCOL = 6;
+export const PROTOCOL = 7;
 export const MAX_PLAYERS = 8;
 export const PEER_PREFIX = 'long-light-cove-';
 export const HOSTED_URL = 'https://pollie80.github.io/long-light/';
@@ -15,9 +16,12 @@ export interface NetState {
   x: number; y: number; z: number; yaw: number;
   /** Off the ground, jumping. */
   air: boolean;
-  /** Pistol out, and how many times it has been fired. */
+  /** A gun out, which one, and how many times it has been fired. */
   gun: boolean;
+  gk: GunKind;
   shots: number;
+  /** Leant back, 0 to 1. */
+  lg: number;
   /** Patting the pet; bottle raised for a cheers. */
   pat: boolean;
   ch: boolean;
@@ -62,7 +66,7 @@ export type Msg =
   | { t: 'name'; id?: string; name: string }
   | { t: 'ev'; id?: string; kind: 'catch'; species: string };
 
-const POSES: PoseMode[] = ['stand', 'row', 'boatSit', 'dockSit', 'benchSit'];
+const POSES: PoseMode[] = ['stand', 'row', 'boatSit', 'dockSit', 'benchSit', 'groundSit'];
 const FISH: FishState[] = ['idle', 'charge', 'flight', 'wait', 'bite', 'reel', 'landed', 'released'];
 
 const num = (v: unknown, lim = 1e5, d = 0): number => {
@@ -83,6 +87,8 @@ export function cleanState(v: unknown): NetState | null {
     x: num(o.x, 5000), y: num(o.y, 500), z: num(o.z, 5000), yaw: num(o.yaw, 100),
     air: o.air === true,
     gun: o.gun === true,
+    gk: GUN_ORDER.includes(o.gk as GunKind) ? (o.gk as GunKind) : 'pistol',
+    lg: Math.min(1, Math.max(0, num(o.lg, 1))),
     pat: o.pat === true,
     ch: o.ch === true,
     ride: typeof o.ride === 'string' ? o.ride.slice(0, 64) : '',

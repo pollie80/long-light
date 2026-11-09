@@ -42,6 +42,10 @@ export interface CharacterLook {
   boatSail: string;
   pet: string;
   petColor: string;
+  rod: string;
+  bobber: string;
+  line: string;
+  gunFinish: string;
   height: number;
   build: number;
   head: number;
@@ -194,6 +198,22 @@ export const PICKS: PickRow[] = [
   { key: 'boatLantern', label: 'lantern light', group: 'Colours', colours: true, choices: [
     c('warm', 'warm', 0xffc070), c('white', 'white', 0xfff4e0), c('blue', 'blue', 0x70b4ff), c('green', 'green', 0x7dffa0), c('pink', 'pink', 0xff80c4), c('violet', 'violet', 0xb68aff),
   ] },
+  // Fishing gear, and the guns.
+  { key: 'rod', label: 'rod', group: 'Gear', choices: [
+    p('cane', 'split cane'), p('carbon', 'carbon'), p('glass', 'white fibreglass'), p('red', 'red fibreglass'), p('green', 'bottle green'),
+    p('candy', 'candy cane', true), p('gold', 'solid gold', true), p('glow', 'glow stick', true), p('rainbow', 'rainbow', true), p('stick', 'a stick off a tree', true),
+  ] },
+  { key: 'bobber', label: 'float', group: 'Gear', choices: [
+    p('classic', 'red and white'), p('cork', 'cork'), p('quill', 'porcupine quill'), p('yellow', 'yellow and black'), p('glow', 'night glow'),
+    p('duck', 'rubber duck', true), p('donut', 'a doughnut', true), p('eyeball', 'an eyeball', true), p('skull', 'a little skull', true), p('boot', 'an old boot', true),
+  ] },
+  { key: 'line', label: 'line colour', group: 'Gear', colours: true, choices: [
+    c('clear', 'clear', 0xf4eedb), c('green', 'hi-vis green', 0xbff24c), c('orange', 'orange', 0xff8c33), c('blue', 'blue', 0x73b3ff), c('pink', 'pink', 0xff73bf, true), c('gold', 'gold', 0xffd24d, true),
+  ] },
+  { key: 'gunFinish', label: 'gun finish', group: 'Gear', choices: [
+    p('steel', 'polished steel'), p('black', 'matte black'), p('walnut', 'walnut and blued'),
+    p('gold', 'gold and ivory', true), p('pink', 'bubblegum', true), p('toy', 'plastic toy', true),
+  ] },
   // The pet.
   { key: 'pet', label: 'companion', group: 'Pet', choices: [
     p('dog', 'dog'), p('cat', 'cat'), p('parrot', 'parrot'), p('duck', 'duck'), p('capybara', 'capybara'), p('turtle', 'turtle'),
@@ -212,13 +232,15 @@ export const SLIDERS: SliderRow[] = [
   { key: 'petSize', label: 'size', group: 'Pet', min: 0.5, max: 2.5, saneMin: 0.8, saneMax: 1.25 },
 ];
 
-export const GROUPS = ['Face', 'Hair', 'Hat', 'Clothes', 'Body'];
+export const GROUPS = ['Face', 'Hair', 'Hat', 'Clothes', 'Body', 'Gear'];
+/** Held, not worn: changing these never rebuilds the figure. */
+export const GEAR_GROUPS = ['Gear'];
 export const BOAT_GROUPS = ['Boat', 'Colours'];
 export const PET_GROUPS = ['Pet'];
 
 /** Everything that changes the figure itself, as a key: nothing else needs its meshes rebuilt. */
 export function figureKey(look: CharacterLook): string {
-  const skip = [...BOAT_GROUPS, ...PET_GROUPS];
+  const skip = [...BOAT_GROUPS, ...PET_GROUPS, ...GEAR_GROUPS];
   return JSON.stringify([...PICKS.filter((r) => !skip.includes(r.group)).map((r) => look[r.key]), ...SLIDERS.filter((r) => !skip.includes(r.group)).map((r) => look[r.key])]);
 }
 
@@ -229,6 +251,7 @@ export const DEFAULT_LOOK: CharacterLook = {
   shoes: 'boots', shoeColor: 'oxblood', neck: 'scarf', neckColor: 'red', back: 'creel', height: 1, build: 1, head: 1,
   boatStyle: 'dinghy', boatHull: 'teal', boatTrim: 'cream', boatStripe: 'red', boatOars: 'cream', boatLantern: 'warm', boatFigure: 'none', boatFlag: 'none', boatSail: 'none',
   pet: 'dog', petColor: 'golden', petSize: 1,
+  rod: 'cane', bobber: 'classic', line: 'clear', gunFinish: 'steel',
 };
 
 /** Fills gaps and drops anything no longer offered, so an old save can never break the character. */

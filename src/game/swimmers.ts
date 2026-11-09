@@ -6,7 +6,7 @@ import { mulberry32 } from '../core/noise';
 import { Q } from '../core/quality';
 import { JETTY, groundY } from '../world/land';
 import type { Water } from '../world/water';
-import { fishModel } from './fishart';
+import { disposeFish, fishModel } from './fishart';
 import { pickCatch, Species } from './fishdata';
 import { Fishing, zoneAt } from './fishing';
 
@@ -20,7 +20,7 @@ interface Swimmer {
   speed: number;
   tx: number;
   tz: number;
-  mode: 'wander' | 'approach' | 'nibble' | 'flee';
+  mode: 'wander' | 'approach' | 'nibble' | 'flee' | 'free';
   phase: number;
   ripple: number;
   /** 0 to 1 coming in, back to 0 going out. */
@@ -46,7 +46,17 @@ export class Swimmers {
   constructor(private seen: (id: string) => boolean) {}
 
   get count(): number {
-    return this.fish.filter((f) => !f.gone && f.mode !== 'flee').length;
+    return this.fish.filter((f) => !f.gone && f.mode !== 'flee' && f.mode !== 'free').length;
+  }
+
+  /** One just let go: it shakes itself and swims off, down and away, and is gone. */
+  release(sp: Species, x: number, z: number, heading: number) {
+    const model = fishModel(sp);
+    this.group.add(model);
+    this.fish.push({
+      catch: sp, model, x, z, y: -0.12, heading, speed: 0.4, tx: x, tz: z, mode: 'free', phase: this.rnd() * 6,
+      ripple: 0.25, show: 1, gone: false, vis: Math.max(1, 0.6 / sp.length), wake: 0,
+    });
   }
 
   private spawn(x: number, z: number, hour: number): Swimmer | null {
@@ -67,8 +77,7 @@ export class Swimmers {
   }
 
   private drop(s: Swimmer) {
-    this.group.remove(s.model);
-    s.model.traverse((m) => (m as THREE.Mesh).geometry?.dispose());
+    disposeFish(s.model);
     s.gone = true;
   }
 
@@ -107,12 +116,16 @@ export class Swimmers {
         if (s.mode === 'approach' && d < 0.35) s.mode = 'nibble';
       } else if (s.mode === 'flee') {
         want = 2.6;
+      } else if (s.mode === 'free') {
+        // A moment to get its bearings, then off.
+        want = 1.7;
+        s.y = Math.max(-0.75, s.y - dt * 0.12);
       } else if (Math.hypot(tx - s.x, tz - s.z) < 0.8) {
         this.newTarget(s);
       }
       const dx = tx - s.x;
       const dz = tz - s.z;
-      if (s.mode !== 'flee' && Math.hypot(dx, dz) > 0.05) {
+      if (s.mode !== 'flee' && s.mode !== 'free' && Math.hypot(dx, dz) > 0.05) {
         s.heading += wrap(Math.atan2(-dx, -dz) - s.heading) * (1 - Math.exp(-dt * (s.mode === 'wander' ? 1.5 : 4)));
       }
       s.speed += (want - s.speed) * (1 - Math.exp(-dt * 2));
@@ -126,8 +139,8 @@ export class Swimmers {
         s.heading += Math.PI * 0.6;
       }
       const far = Math.hypot(s.x - center.x, s.z - center.z);
-      const leaving = s.mode === 'flee' || far > 48;
-      s.show = Math.max(0, Math.min(1, s.show + (leaving ? -dt * 0.8 : dt * 0.6)));
+      const leaving = s.mode === 'flee' || s.mode === 'free' || far > 48;
+      s.show = Math.max(0, Math.min(1, s.show + (leaving ? -dt * (s.mode === 'free' ? 0.3 : 0.8) : dt * 0.6)));
       if (leaving && s.show <= 0) {
         if (this.approacher === s) this.approacher = null;
         this.drop(s);
@@ -135,7 +148,7 @@ export class Swimmers {
       }
       const wiggle = Math.sin(t * (4 + s.speed * 6) + s.phase) * (0.12 + s.speed * 0.12);
       // Now and then one comes up until its back breaks the surface; one heading for the bobber stays up there.
-      const rise = s.mode === 'wander' ? Math.pow(Math.max(0, Math.sin(t * 0.42 + s.phase * 3)), 6) : 1;
+      const rise = s.mode === 'wander' ? Math.pow(Math.max(0, Math.sin(t * 0.42 + s.phase * 3)), 6) : s.mode === 'free' ? 0 : 1;
       // Its back just out of the water, so it shows whatever the light is doing to the surface.
       const top = s.mode === 'approach' ? -0.015 : -0.04;
       const y = s.y * (1 - rise) + top * rise;
@@ -143,7 +156,7 @@ export class Swimmers {
       s.model.rotation.set(0, s.heading + wiggle, 0);
       s.model.scale.setScalar(Math.max(0.001, s.show * s.vis));
       // A fish heading in leaves a little V on the water behind it.
-      if (s.mode === 'approach') {
+      if (s.mode === 'approach' || (s.mode === 'free' && s.show > 0.55)) {
         s.wake -= dt;
         if (s.wake <= 0) {
           s.wake = 0.16;

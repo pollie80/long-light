@@ -1,7 +1,7 @@
 // HTML overlay: title, prompts, catch card, journal, menu. Reads and writes game state through callbacks.
 import './styles.css';
 import { clockLabel, sunDir } from '../core/time';
-import { SPECIES, Species, TIER_LABEL, TIERS, Tier, BANDS, BandId, bandAt, neonOf, placeSpecies, speciesIn } from '../game/fishdata';
+import { SPECIES, Species, TIER_LABEL, TIERS, Tier, BANDS, BandId, bandAt, neonOf, placeSpecies, speciesIn, weightKg } from '../game/fishdata';
 import { paintFish } from '../game/fishart';
 import { BOAT_PANEL, LOOK_PANEL, PET_PANEL, Wardrobe, WardrobeHooks, WardrobePanel } from './wardrobe';
 import { ICON } from './icons';
@@ -89,6 +89,16 @@ export interface FriendsView {
 const el = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
 const fmtLen = (m: number) => (m >= 1 ? `${m.toFixed(1)} m` : `${Math.round(m * 100)} cm`);
+const fmtWeight = (kg: number) => (kg >= 10 ? `${Math.round(kg)} kg` : kg >= 1 ? `${kg.toFixed(1)} kg` : `${Math.max(1, Math.round(kg * 1000 / 10) * 10)} g`);
+
+/** What the gun HUD shows. */
+export interface SightsView {
+  rounds: number;
+  magazine: number;
+  kind: 'pistol' | 'rifle' | 'shotgun';
+  name: string;
+  reloading: boolean;
+}
 
 const PHASE_NAMES: [number, string][] = [
   [4.8, 'the small hours'], [7, 'first light'], [9.5, 'morning'], [12.5, 'late morning'], [16.3, 'afternoon'],
@@ -182,7 +192,8 @@ export class UI {
         <button data-h="-1" class="quiet">Cancel</button>
       </div>
       <div id="fps" class="gone"></div>
-      <div id="sights" class="gone"><i></i><div id="rounds">${'<b></b>'.repeat(7)}</div></div>
+      <div id="scope" class="gone"></div>
+      <div id="sights" class="gone"><i></i><div id="rounds"></div><div id="gunName"></div></div>
       <div id="places" class="paper hidden">
         <h2>${ICON.map} Choose a place</h2>
         <div class="placeCards">
@@ -255,14 +266,19 @@ export class UI {
           <div class="keyRow"><span><kbd>Shift</kbd></span>Walk instead of run</div>
           <div class="keyRow"><span><kbd>Shift</kbd> in a boat</span>Row twice as fast</div>
           <div class="keyRow"><span><kbd>Space</kbd> tap</span>Jump</div>
+          <div class="keyRow"><span><kbd>V</kbd></span>Sit back and relax, through your own eyes</div>
           <h4>Doing</h4>
           <div class="keyRow"><span><kbd>E</kbd></span>Use what is nearby, or climb into a friend's boat</div>
           <div class="keyRow"><span><kbd>Space</kbd> hold or <kbd>Click</kbd></span>Cast, hook, reel</div>
           <div class="keyRow"><span><kbd>B</kbd></span>Have a beer</div>
           <div class="keyRow"><span><kbd>P</kbd></span>Pat your pet, ashore or afloat</div>
           <div class="keyRow"><span><kbd>C</kbd> near a friend</span>Cheers, with fireworks</div>
-          <div class="keyRow"><span><kbd>G</kbd></span>Desert Eagle in or out</div>
-          <div class="keyRow"><span><kbd>Click</kbd> with it out</span>Fire</div>
+          <h4>Guns, for the birds</h4>
+          <div class="keyRow"><span><kbd>G</kbd></span>Gun in or out</div>
+          <div class="keyRow"><span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> or scroll</span>Desert Eagle, hunting rifle, shotgun</div>
+          <div class="keyRow"><span><kbd>Click</kbd></span>Fire</div>
+          <div class="keyRow"><span><kbd>Right-click</kbd> hold</span>Aim, or the rifle's scope</div>
+          <div class="keyRow"><span><kbd>R</kbd></span>Reload</div>
           <h4>Other</h4>
           <div class="keyRow"><span><kbd>J</kbd></span>Journal</div>
           <div class="keyRow"><span><kbd>F</kbd></span>Friends</div>
@@ -490,13 +506,14 @@ export class UI {
     return c;
   }
 
-  showCard(sp: Species | null, first: boolean, hour: number, count: number, sizeM: number, go: string) {
+  showCard(sp: Species | null, first: boolean, hour: number, count: number, sizeM: number, go: string, kg = 0, record = false) {
     const card = el('card');
     if (!sp) {
       card.classList.add('hidden');
       return;
     }
-    el('cKick').textContent = first ? 'new in the journal' : count > 1 ? `the ${count === 2 ? 'second' : count === 3 ? 'third' : `${count}th`} one of these` : '';
+    el('cKick').textContent = first ? 'new in the journal' : record ? 'your biggest one yet' : count > 1 ? `the ${count === 2 ? 'second' : count === 3 ? 'third' : `${count}th`} one of these` : '';
+    el('cKick').classList.toggle('record', record);
     el('cName').textContent = sp.name;
     const tier = el('cTier');
     tier.className = `tier tier-${sp.tier}`;
@@ -510,7 +527,7 @@ export class UI {
     canvas.getContext('2d')!.drawImage(src, 0, 0);
     art.appendChild(canvas);
     el('cVerse').textContent = sp.verse;
-    el('cNote').textContent = `${fmtLen(sizeM)}, in ${timeName(hour)}`;
+    el('cNote').textContent = `${fmtLen(sizeM)}${kg > 0 ? `, ${fmtWeight(kg)}` : ''}, in ${timeName(hour)}`;
     el('cGo').innerHTML = go;
     card.classList.remove('hidden');
   }
@@ -583,8 +600,9 @@ export class UI {
       const em = document.createElement('em');
       em.textContent = e ? `${e.count > 1 ? `met ${e.count} times` : 'met once'}${e.neon ? `, ${e.neon} neon` : ''}` : '';
       slot.appendChild(em);
+      const best = e?.biggest ? `Biggest ${fmtLen(e.biggest)}, ${fmtWeight(weightKg(sp, e.biggest))}. ` : '';
       slot.onmouseenter = () => {
-        detail.textContent = e ? `${sp.name}. ${sp.verse}` : `Not yet met. ${sp.hint}`;
+        detail.textContent = e ? `${sp.name}. ${best}${sp.verse}` : `Not yet met. ${sp.hint}`;
       };
       slot.onmouseleave = () => {
         detail.textContent = note;
@@ -683,12 +701,31 @@ export class UI {
     el('pNote').textContent = text;
   }
 
-  /** The sights, and how many rounds are left, or null when the gun is away. */
-  sights(rounds: number | null) {
+  /** The sights, which gun, and how many rounds are left, or null when the gun is away. */
+  sights(v: SightsView | null) {
     const box = el('sights');
-    box.classList.toggle('gone', rounds === null);
-    if (rounds === null) return;
-    box.querySelectorAll('#rounds b').forEach((b, i) => b.classList.toggle('spent', i >= rounds));
+    box.classList.toggle('gone', v === null);
+    if (v === null) {
+      this.scope(false);
+      return;
+    }
+    const rounds = el('rounds');
+    if (rounds.dataset.kind !== v.kind) {
+      rounds.dataset.kind = v.kind;
+      rounds.className = `r-${v.kind}`;
+      rounds.innerHTML = '<b></b>'.repeat(v.magazine);
+    }
+    rounds.querySelectorAll('b').forEach((b, i) => b.classList.toggle('spent', i >= v.rounds));
+    el('gunName').textContent = v.reloading ? `${v.name}, reloading` : v.name;
+    box.classList.toggle('reloading', v.reloading);
+  }
+
+  /** Looking through the rifle's scope. */
+  scope(on: boolean) {
+    const s = el('scope');
+    if (s.classList.contains('gone') === !on) return;
+    s.classList.toggle('gone', !on);
+    el('sights').classList.toggle('scoped', on);
   }
 
   setFps(text: string | null) {

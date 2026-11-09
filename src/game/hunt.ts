@@ -254,15 +254,16 @@ export class Hunt {
   }
 
   /** A single bullet from `origin` along the unit vector `dir`, with a little allowance so a good aim counts. */
-  fire(origin: THREE.Vector3, dir: THREE.Vector3): ShotResult | null {
+  /** A shot along `dir`: every bird within `spread(distance)` of the line, out to `reach`, comes down. */
+  fire(origin: THREE.Vector3, dir: THREE.Vector3, reach = REACH, spread: (along: number) => number = (a) => 0.5 + a * 0.016): ShotResult | null {
     let result: ShotResult | null = null;
     for (const b of this.birds) {
       if (!b.alive) continue;
       const to = this.tmp.subVectors(b.root.position, origin);
       const along = to.dot(dir);
-      if (along < 2 || along > REACH) continue;
+      if (along < 2 || along > reach) continue;
       const missBy = this.tmp2.copy(dir).multiplyScalar(along).sub(to).length();
-      if (missBy > (0.5 + along * 0.016) * b.kind.size) continue;
+      if (missBy > spread(along) * b.kind.size) continue;
       b.alive = false;
       b.vel.multiplyScalar(0.55);
       b.vel.y = 1.5;

@@ -15,6 +15,8 @@ export const ICON = {
   muted: svg('<path d="M4 9.5v5h3.5L12.5 19V5L7.5 9.5z"/><path d="M16.5 9.5l4.5 5M21 9.5l-4.5 5"/>'),
   boot: svg('<path d="M8 3.5h6.5v8l4.7 2.8c1.2.7 1.8 1.7 1.8 2.9v1.3H8z"/><path d="M8 16.5h13"/>'),
   boat: svg('<path d="M2.5 12.5h19l-3 6.5h-13z"/><path d="M8.5 5.5l7 13.5"/>'),
+  hook: svg('<path d="M14.5 3v10.2a4.6 4.6 0 0 1-9.2 0v-1.7"/><path d="M5.3 11.5l-1.8 2.2"/><circle cx="14.5" cy="3" r="1.1"/><path d="M14.5 5.5l3.5 1"/>'),
+  scope: svg('<circle cx="12" cy="12" r="7.5"/><path d="M12 2.5v5M12 16.5v5M2.5 12h5M16.5 12h5"/>'),
   paw: svg('<ellipse cx="12" cy="15.5" rx="4.6" ry="3.8"/><circle cx="5.8" cy="10.8" r="1.8"/><circle cx="9.6" cy="6.8" r="1.9"/><circle cx="14.4" cy="6.8" r="1.9"/><circle cx="18.2" cy="10.8" r="1.8"/>'),
   gem: svg('<path d="M3 13.5l4.5-8h9l4.5 8-9 7z"/><path d="M3 13.5h18M9 13.5L12 5.5l3 8M9 13.5l3 7 3-7"/>'),
   map: svg('<path d="M3.5 6.5l5.5-2.5 6 2.5 5.5-2.5v14l-5.5 2.5-6-2.5-5.5 2.5z"/><path d="M9 4v14M15 6.5v14"/>'),

@@ -610,9 +610,27 @@ export class AudioWorld {
   }
 
   /** A big pistol across open water: a very hard crack, a short thump, and the hills answering. `near` is 1 for your own. */
-  shot(near = 1) {
+  shot(near = 1, kind: 'pistol' | 'rifle' | 'shotgun' = 'pistol') {
     if (!this.ctx) return;
     const v = near;
+    if (kind === 'rifle') {
+      // A rifle: a whip-crack that goes on rolling round the hills for a long time.
+      this.burst(this.noiseWhite, 0.035, 1.25 * v, { type: 'highpass', f0: 2200 }, {});
+      this.burst(this.noisePink, 0.09, 0.9 * v, { type: 'bandpass', f0: 1400, f1: 500, q: 0.8 }, {});
+      this.burst(this.noiseBrown, 0.3, 0.95 * v, { type: 'lowpass', f0: 520, f1: 80 }, {});
+      this.burst(this.noiseBrown, 1.0, 0.24 * v, { type: 'lowpass', f0: 340, f1: 80 }, { delay: 0.45, pan: -0.5 });
+      this.burst(this.noiseBrown, 1.4, 0.15 * v, { type: 'lowpass', f0: 260, f1: 70 }, { delay: 1.05, pan: 0.5 });
+      this.burst(this.noiseBrown, 1.6, 0.08 * v, { type: 'lowpass', f0: 200, f1: 60 }, { delay: 1.8, pan: -0.2 });
+      return;
+    }
+    if (kind === 'shotgun') {
+      // Birdshot: a deep, wide boom with less snap to it.
+      this.burst(this.noisePink, 0.07, 0.9 * v, { type: 'highpass', f0: 900 }, {});
+      this.burst(this.noiseBrown, 0.38, 1.45 * v, { type: 'lowpass', f0: 420, f1: 60 }, {});
+      this.burst(this.noiseBrown, 0.9, 0.3 * v, { type: 'lowpass', f0: 260, f1: 70 }, { delay: 0.38, pan: -0.4 });
+      this.burst(this.noiseBrown, 1.2, 0.14 * v, { type: 'lowpass', f0: 200, f1: 60 }, { delay: 0.9, pan: 0.45 });
+      return;
+    }
     this.burst(this.noisePink, 0.05, 1.2 * v, { type: 'highpass', f0: 1500 }, {});
     this.burst(this.noiseBrown, 0.22, 1.2 * v, { type: 'lowpass', f0: 620, f1: 90 }, {});
     this.burst(this.noiseBrown, 0.8, 0.22 * v, { type: 'lowpass', f0: 300, f1: 90 }, { delay: 0.34, pan: -0.4 });
@@ -646,6 +664,33 @@ export class AudioWorld {
       this.burst(this.noisePink, 0.03, 0.1 * v, { type: 'highpass', f0: 3000 }, { delay: delay + 0.45 + Math.random() * 1.4, pan: pan + (Math.random() - 0.5) * 0.4 });
     }
     this.burst(this.noiseBrown, 1.4, 0.14 * v, { type: 'lowpass', f0: 240, f1: 70 }, { delay: delay + 0.8, pan: -pan });
+  }
+
+  /** The bolt worked back and forward between rifle shots. */
+  bolt() {
+    if (!this.ctx) return;
+    this.burst(this.noisePink, 0.04, 0.24, { type: 'bandpass', f0: 2100, q: 3 }, { delay: 0.28 });
+    this.burst(this.noisePink, 0.05, 0.28, { type: 'bandpass', f0: 1500, q: 3 }, { delay: 0.5 });
+  }
+
+  /** Each gun has its own sound for filling up again. */
+  reloadOf(kind: 'pistol' | 'rifle' | 'shotgun') {
+    if (!this.ctx) return;
+    if (kind === 'pistol') {
+      this.reload();
+      return;
+    }
+    if (kind === 'shotgun') {
+      // Broken open, two shells in, snapped shut.
+      this.burst(this.noisePink, 0.05, 0.3, { type: 'bandpass', f0: 1100, q: 2 }, {});
+      this.burst(this.noisePink, 0.03, 0.18, { type: 'bandpass', f0: 2600, q: 3 }, { delay: 0.7 });
+      this.burst(this.noisePink, 0.03, 0.18, { type: 'bandpass', f0: 2500, q: 3 }, { delay: 1.1 });
+      this.burst(this.noisePink, 0.06, 0.38, { type: 'bandpass', f0: 1200, q: 2 }, { delay: 1.75 });
+      return;
+    }
+    // Five rounds pressed down into the rifle, then the bolt closed.
+    for (let i = 0; i < 5; i++) this.burst(this.noisePink, 0.025, 0.16, { type: 'bandpass', f0: 2800, q: 4 }, { delay: 0.5 + i * 0.32 });
+    this.burst(this.noisePink, 0.05, 0.3, { type: 'bandpass', f0: 1500, q: 3 }, { delay: 2.3 });
   }
 
   /** The empty magazine out, a full one in, the slide let go. */

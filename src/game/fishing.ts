@@ -6,9 +6,10 @@ import { paintedMaterial } from '../render/shared';
 import { damp, mulberry32 } from '../core/noise';
 import { nightMagic } from '../core/time';
 import { pickCatch, Species, Zone } from './fishdata';
-import { fishModel } from './fishart';
+import { disposeFish, fishModel } from './fishart';
 import type { Water } from '../world/water';
 import type { AudioWorld } from '../audio/audio';
+import { CharacterLook, choiceOf } from '../actors/look';
 
 export type FishState = 'idle' | 'charge' | 'flight' | 'wait' | 'bite' | 'reel' | 'landed' | 'released';
 
@@ -21,14 +22,94 @@ export function zoneAt(x: number, z: number, hour = 12): Zone {
   return groundY(x, z) > -3.4 ? 'shallows' : 'deep';
 }
 
-export function makeBobber(): THREE.Group {
+/** The float, in any of the styles the wardrobe offers. Its origin sits at the waterline. */
+function bobberGeo(style: string): THREE.BufferGeometry {
   const b = new Builder(121);
-  b.sphere(0.075, 0xe6dccb, TRS(0, 0.02, 0), {}, 10, 8);
-  b.sphere(0.078, 0xc23a2c, TRS(0, 0.06, 0, 0, 0, 0, 1, 0.65, 1), {}, 10, 6);
-  b.cyl(0.008, 0.012, 0.2, 0xc23a2c, TRS(0, 0.17, 0), {}, 5);
+  switch (style) {
+    case 'cork':
+      b.sphere(0.058, 0xc89a64, TRS(0, 0.04, 0, 0, 0, 0, 1, 1.5, 1), { jit: 0.12 }, 10, 8);
+      b.cyl(0.006, 0.01, 0.15, 0xc23a2c, TRS(0, 0.17, 0), {}, 5);
+      b.cyl(0.004, 0.006, 0.1, 0x6a4a2a, TRS(0, -0.07, 0), {}, 5);
+      break;
+    case 'quill':
+      b.cyl(0.008, 0.013, 0.34, 0xeee8d8, TRS(0, 0.06, 0), {}, 6);
+      b.cyl(0.0088, 0.0088, 0.05, 0x1a1a1a, TRS(0, 0.0, 0), {}, 6);
+      b.cyl(0.004, 0.008, 0.06, 0xd8342a, TRS(0, 0.25, 0), {}, 6);
+      break;
+    case 'yellow':
+      b.sphere(0.075, 0x1d1d20, TRS(0, 0.02, 0), {}, 10, 8);
+      b.sphere(0.078, 0xf0c41c, TRS(0, 0.06, 0, 0, 0, 0, 1, 0.65, 1), {}, 10, 6);
+      b.cyl(0.008, 0.012, 0.2, 0xf0c41c, TRS(0, 0.17, 0), {}, 5);
+      break;
+    case 'glow':
+      // The kind with a light stick in the top, for fishing after dark.
+      b.sphere(0.075, 0x2a2c30, TRS(0, 0.02, 0), {}, 10, 8);
+      b.sphere(0.078, 0x7dff9a, TRS(0, 0.06, 0, 0, 0, 0, 1, 0.65, 1), { emis: 0.85 }, 10, 6);
+      b.cyl(0.009, 0.013, 0.22, 0xa6ffbc, TRS(0, 0.18, 0), { emis: 1 }, 5);
+      break;
+    case 'duck':
+      b.sphere(0.085, 0xf2c81c, TRS(0, 0.03, 0.01, 0, 0, 0, 1, 0.72, 1.25), {}, 12, 8);
+      b.sphere(0.052, 0xf2c81c, TRS(0, 0.115, -0.055), {}, 10, 8);
+      b.box(0.042, 0.016, 0.05, 0xf07a1c, TRS(0, 0.105, -0.11), {}, 0.007);
+      b.sphere(0.009, 0x111111, TRS(0.032, 0.13, -0.085), {}, 6, 4);
+      b.sphere(0.009, 0x111111, TRS(-0.032, 0.13, -0.085), {}, 6, 4);
+      b.box(0.03, 0.04, 0.05, 0xf2c81c, TRS(0, 0.07, 0.1, 0.6, 0, 0), {}, 0.012);
+      break;
+    case 'donut':
+      b.add(new THREE.TorusGeometry(0.07, 0.036, 8, 18), 0xd29a5a, TRS(0, 0.02, 0, Math.PI / 2, 0, 0));
+      b.add(new THREE.TorusGeometry(0.07, 0.031, 8, 18), 0xf07ab4, TRS(0, 0.036, 0, Math.PI / 2, 0, 0, 1, 1, 0.85));
+      for (let i = 0; i < 9; i++) {
+        const a = i * 2.39;
+        b.box(0.016, 0.006, 0.006, [0xf4f0e0, 0x5ac8f0, 0xf0d040][i % 3], TRS(Math.cos(a) * 0.07, 0.064, Math.sin(a) * 0.07, 0, a * 1.7, 0), {}, 0.002);
+      }
+      break;
+    case 'eyeball':
+      b.sphere(0.08, 0xf4f0e8, TRS(0, 0.03, 0), {}, 12, 10);
+      b.sphere(0.04, 0x3a7ad0, TRS(0, 0.062, -0.042), {}, 10, 8);
+      b.sphere(0.02, 0x0c0c0e, TRS(0, 0.075, -0.06), {}, 8, 6);
+      break;
+    case 'skull':
+      b.sphere(0.07, 0xece6d4, TRS(0, 0.065, 0), {}, 10, 8);
+      b.box(0.08, 0.045, 0.07, 0xece6d4, TRS(0, 0.005, -0.02), {}, 0.015);
+      b.sphere(0.019, 0x141414, TRS(0.027, 0.062, -0.056), {}, 6, 4);
+      b.sphere(0.019, 0x141414, TRS(-0.027, 0.062, -0.056), {}, 6, 4);
+      b.box(0.012, 0.016, 0.01, 0x141414, TRS(0, 0.032, -0.07), {}, 0.002);
+      break;
+    case 'boot':
+      b.box(0.08, 0.15, 0.09, 0x4a3424, TRS(0, 0.06, 0.03), { jit: 0.12 }, 0.02);
+      b.box(0.085, 0.06, 0.17, 0x3e2c1e, TRS(0, -0.005, -0.03), { jit: 0.12 }, 0.02);
+      b.box(0.09, 0.016, 0.18, 0x221812, TRS(0, -0.04, -0.03), {}, 0.005);
+      break;
+    default:
+      b.sphere(0.075, 0xe6dccb, TRS(0, 0.02, 0), {}, 10, 8);
+      b.sphere(0.078, 0xc23a2c, TRS(0, 0.06, 0, 0, 0, 0, 1, 0.65, 1), {}, 10, 6);
+      b.cyl(0.008, 0.012, 0.2, 0xc23a2c, TRS(0, 0.17, 0), {}, 5);
+  }
+  return b.build();
+}
+
+export function makeBobber(style = 'classic'): THREE.Group {
   const g = new THREE.Group();
-  g.add(solid(b.build(), paintedMaterial(), false));
+  g.add(solid(bobberGeo(style), paintedMaterial(), false));
+  g.userData.style = style;
   return g;
+}
+
+/** Swaps the float for another style, in place. */
+export function setBobberStyle(g: THREE.Group, style: string) {
+  if (g.userData.style === style) return;
+  const m = g.children[0] as THREE.Mesh;
+  m.geometry.dispose();
+  m.geometry = bobberGeo(style);
+  g.userData.style = style;
+}
+
+/** The line in the colour picked for it. Each line has its own copy of the material. */
+export function setLineColour(mat: THREE.Material, id: string) {
+  const u = (mat as THREE.ShaderMaterial).uniforms;
+  if (!u?.uCol) return;
+  u.uCol.value.setHex(choiceOf('line', id).color ?? 0xf4eedb, THREE.LinearSRGBColorSpace);
+  u.uA.value = id === 'clear' ? 0.62 : 0.86;
 }
 
 export class Fishing {
@@ -67,6 +148,21 @@ export class Fishing {
   onLanded: ((s: Species, size: number) => void) | null = null;
   onSlip: (() => void) | null = null;
   onBite: (() => void) | null = null;
+  /** Hooked, and whether it was answered smartly. */
+  onHook: ((strike: boolean) => void) | null = null;
+  /** Let go and back in the water, here, heading this way. */
+  onFreed: ((s: Species, x: number, z: number, heading: number) => void) | null = null;
+  /** Answered within a moment of the bite: a better hook, and often a better fish. */
+  strike = false;
+  private biteAge = 0;
+  /** A fish on the line leaps clear now and then. -1 while it's under. */
+  private leapK = -1;
+  private leapT = 0;
+  private leaps = 0;
+  private freeFrom = new THREE.Vector3();
+  private freeTo = new THREE.Vector3();
+  private rodBaseSeen = new THREE.Vector3();
+  private previewing = false;
   seen: (id: string) => boolean = () => false;
 
   constructor(scene: THREE.Object3D, lineMat: THREE.Material) {
@@ -79,9 +175,41 @@ export class Fishing {
     this.linePos = new Float32Array(N * 3);
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(this.linePos, 3));
-    this.line = new THREE.Line(g, lineMat);
+    this.line = new THREE.Line(g, lineMat.clone());
     this.line.frustumCulled = false;
     this.line.visible = false;
+  }
+
+  /** The float and line the wardrobe picked. */
+  setGear(look: CharacterLook) {
+    setBobberStyle(this.bobber, look.bobber);
+    setLineColour(this.line.material as THREE.Material, look.line);
+  }
+
+  /** In front of the mirror: the float hangs from the rod tip, so it can be seen. */
+  preview(on: boolean, tip: THREE.Vector3, t: number) {
+    if (this.state !== 'idle') return;
+    if (!on) {
+      if (this.previewing) {
+        this.bobber.visible = false;
+        this.line.visible = false;
+        this.previewing = false;
+      }
+      return;
+    }
+    this.previewing = true;
+    this.bobber.visible = true;
+    this.line.visible = true;
+    this.bobber.position.set(tip.x + Math.sin(t * 1.3) * 0.02, tip.y - 0.62, tip.z + Math.cos(t * 1.1) * 0.02);
+    this.bobber.rotation.set(0, t * 0.4, 0);
+    const N = this.linePos.length / 3;
+    for (let i = 0; i < N; i++) {
+      const k = i / (N - 1);
+      this.linePos[i * 3] = tip.x + (this.bobber.position.x - tip.x) * k;
+      this.linePos[i * 3 + 1] = tip.y + (this.bobber.position.y + 0.2 - tip.y) * k;
+      this.linePos[i * 3 + 2] = tip.z + (this.bobber.position.z - tip.z) * k;
+    }
+    (this.line.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
   }
 
   get active(): boolean {
@@ -90,12 +218,13 @@ export class Fishing {
 
   private clearModel() {
     if (this.model) {
-      this.scene.remove(this.model);
+      disposeFish(this.model);
       this.model = null;
     }
   }
 
   beginCharge() {
+    this.previewing = false;
     this.state = 'charge';
     this.charge = 0;
   }
@@ -164,6 +293,7 @@ export class Fishing {
         if (this.waitT <= 0) {
           this.state = 'bite';
           this.biteT = 9;
+          this.biteAge = 0;
           this.species = this.preset ?? pickCatch(zoneAt(this.lure.x, this.lure.z, hour), hour, this.rnd, this.seen);
           this.preset = null;
           this.dipV = -3.4;
@@ -175,6 +305,7 @@ export class Fishing {
       }
       case 'bite': {
         this.biteT -= dt;
+        this.biteAge += dt;
         // Repeated tugs until answered.
         if (Math.sin(t * 7) > 0.92) {
           this.dipV = -1.7;
@@ -182,6 +313,11 @@ export class Fishing {
         }
         if (actionPressed) {
           this.state = 'reel';
+          this.strike = this.biteAge < 0.8;
+          this.onHook?.(this.strike);
+          this.leapK = -1;
+          this.leaps = 0;
+          this.leapT = 1.6 + this.rnd() * 2.4;
           this.fightT = 0;
           this.fightDur = this.species?.fight ?? 7;
           this.fishDist = Math.hypot(this.lure.x - rodBase.x, this.lure.z - rodBase.z);
@@ -225,17 +361,39 @@ export class Fishing {
           water.splash(this.lure.x, this.lure.z, 0.42, 0.07);
           if (Math.random() < 0.08) audio.splash(0.15);
         }
+        // Now and then it comes clean out of the water, shakes, and goes back in with a smack.
+        if (this.leapK < 0) {
+          this.leapT -= dt;
+          if (this.leapT <= 0 && this.fishDist > 3.5 && this.leaps < 2) {
+            this.leapK = 0;
+            this.leaps += 1;
+            this.splashAt(water, audio, 0.5);
+          }
+        } else {
+          this.leapK += dt / 0.8;
+          if (this.leapK >= 1) {
+            this.leapK = -1;
+            this.leapT = 2.6 + this.rnd() * 3;
+            this.splashAt(water, audio, 0.65);
+          }
+        }
+        const len = this.species?.length ?? 0.3;
+        const leapS = this.leapK >= 0 ? Math.sin(this.leapK * Math.PI) : 0;
+        // Friends see the leap through the height of the lure.
+        this.lure.y = this.leapK >= 0 ? leapS * (0.45 + len * 0.55) : 0;
         if (this.model) {
           const dirA = ang + Math.sin(t * 2.2) * 0.45 + Math.PI;
-          this.model.position.set(this.lure.x, -0.28, this.lure.z);
-          this.model.rotation.set(0, -dirA + Math.PI / 2, Math.sin(t * 7) * 0.12, 'YXZ');
+          this.model.position.set(this.lure.x, -0.28 + leapS * (0.28 + 0.45 + len * 0.55), this.lure.z);
+          const pitch = this.leapK >= 0 ? (0.5 - this.leapK) * 1.7 : 0;
+          const shake = this.leapK >= 0 ? Math.sin(t * 26) * 0.35 : Math.sin(t * 7) * 0.12;
+          this.model.rotation.set(pitch, -dirA + Math.PI / 2, shake, 'YXZ');
         }
         if (this.fishDist < 2.4) {
           this.state = 'landed';
           this.splashAt(water, audio, 0.75);
           audio.landed();
           this.modelSwing = 1;
-          const sizeK = 0.82 + this.rnd() * 0.42;
+          const sizeK = 0.82 + this.rnd() * 0.42 + (this.strike ? 0.07 : 0);
           this.landedSize = (this.species?.length ?? 0.3) * sizeK;
           if (this.species) this.onLanded?.(this.species, this.landedSize);
           this.bobber.visible = false;
@@ -256,13 +414,20 @@ export class Fishing {
         break;
       }
       case 'released': {
+        // Tossed out in a short arc, and gone with a flick of the tail.
         this.releaseT += dt;
         if (this.model) {
-          this.model.position.y -= dt * (1.5 + this.releaseT * 9);
-          this.model.rotation.z += dt * 3;
-          if (this.model.position.y < 0) {
-            water.splash(this.model.position.x, this.model.position.z, 0.55, 0.18);
+          const k = Math.min(1, this.releaseT / 0.62);
+          this.model.position.lerpVectors(this.freeFrom, this.freeTo, k);
+          this.model.position.y += Math.sin(k * Math.PI) * 0.45;
+          this.model.rotation.x = -Math.PI / 2 + k * 2.2;
+          this.model.rotation.z += dt * 4;
+          this.lure.copy(this.model.position);
+          if (k >= 1) {
+            water.splash(this.freeTo.x, this.freeTo.z, 0.55, 0.18);
             audio.splash(0.5);
+            const heading = Math.atan2(-(this.freeTo.x - this.freeFrom.x), -(this.freeTo.z - this.freeFrom.z));
+            if (this.species) this.onFreed?.(this.species, this.freeTo.x, this.freeTo.z, heading);
             this.clearModel();
             this.reelIn();
           }
@@ -285,10 +450,11 @@ export class Fishing {
       this.bobber.position.copy(this.lure);
     }
 
+    this.rodBaseSeen.copy(rodBase);
     // Line: sag when slack, taut when a fish is on it.
-    if (this.line.visible) {
+    if (this.line.visible && !this.previewing) {
       const a = rodTip;
-      const b = this.state === 'flight' ? this.lure : this.state === 'landed' ? this.lure : this.bobber.position;
+      const b = this.state === 'flight' ? this.lure : this.state === 'landed' ? this.lure : this.leapK >= 0 && this.model ? this.model.position : this.bobber.position;
       const taut = this.state === 'reel' || this.state === 'landed' ? 0.05 : this.state === 'bite' ? 0.25 : 0.65;
       const N = this.linePos.length / 3;
       const dist = a.distanceTo(b);
@@ -308,6 +474,14 @@ export class Fishing {
     this.state = 'released';
     this.releaseT = 0;
     this.line.visible = false;
+    // Out over the water, away from whoever is holding it; straight down if that would be land.
+    const from = this.model ? this.model.position : this.lure;
+    this.freeFrom.copy(from);
+    const dx = from.x - this.rodBaseSeen.x;
+    const dz = from.z - this.rodBaseSeen.z;
+    const d = Math.hypot(dx, dz) || 1;
+    this.freeTo.set(from.x + (dx / d) * 1.7, -0.1, from.z + (dz / d) * 1.7);
+    if (groundY(this.freeTo.x, this.freeTo.z) > -0.3) this.freeTo.set(from.x, -0.1, from.z);
   }
 
   bendAmount(t: number): number {

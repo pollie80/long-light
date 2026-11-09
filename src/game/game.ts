@@ -24,13 +24,14 @@ import { clamp, damp, smoothstep } from '../core/noise';
 import { Pet } from '../actors/pet';
 import { Hunt } from './hunt';
 import { Swimmers } from './swimmers';
+import { GUN_ORDER, GUNS, GunKind } from './guns';
 import { Fireworks } from '../world/fireworks';
 import { Q, setQuality } from '../core/quality';
 import { MAP, MapId, MAPS, switchMap } from '../world/maps';
 import { Net, NetPlayer } from '../net/net';
 import { RemotePlayer } from '../net/remote';
 import { cleanName, codeFromHash, inviteLink, NetState } from '../net/protocol';
-import { SPECIES, TIER_LABEL } from './fishdata';
+import { SPECIES, TIER_LABEL, weightKg } from './fishdata';
 
 type Mode = 'title' | 'intro' | 'walk' | 'transition' | 'row' | 'sit' | 'ride';
 
@@ -40,8 +41,6 @@ const START = pathPoint(9);
 
 /** Where a passenger's pet sits: on the boards at their feet. */
 const RIDE_PET_OFFSET = new THREE.Vector3(0, 0.36, -0.52);
-/** A Desert Eagle in .50 holds seven. */
-const MAGAZINE = 7;
 const JUMP_SPEED = 4.4;
 const GRAVITY = 12.5;
 /** Where you can cast, a press shorter than this is a jump and a longer one is a cast. */
@@ -113,7 +112,22 @@ export class Game {
   private patTarget = new THREE.Vector3();
   private clinked = new Map<string, number>();
   private patHintBoat = false;
-  private rounds = MAGAZINE;
+  /** Which gun is in hand, and what's left in each. */
+  gunKind: GunKind = 'pistol';
+  private ammo: Record<GunKind, number> = { pistol: GUNS.pistol.magazine, rifle: GUNS.rifle.magazine, shotgun: GUNS.shotgun.magazine };
+  /** Working the bolt, or bringing the next gun up: no firing till it's done. */
+  private cycleT = 0;
+  /** 0 to 1: looking down the sights, or through the scope. */
+  aimK = 0;
+  private hintedScope = false;
+  private wheelAcc = 0;
+  /** Sitting back to watch the world, seen through the fisher's own eyes. */
+  relax = false;
+  /** 0 to 1: the view easing from behind the fisher into their eyes. */
+  relaxK = 0;
+  private loungeK = 0;
+  private hintedRelax = false;
+  private eyeTmp = new THREE.Vector3();
   private reloadT = 0;
   private recoil = 0;
   private flashT = 0;
@@ -164,7 +178,7 @@ export class Game {
   // Boat seat.
   private fisherYaw = Math.PI;
   private inBoat = false;
-  private sitKind: 'dock' | 'bench' = 'dock';
+  private sitKind: 'dock' | 'bench' | 'ground' = 'dock';
   // Camera.
   yaw = Math.PI / 2 - 0.05;
   pitch = 0.09;
@@ -177,6 +191,7 @@ export class Game {
   private sideNow = 0.75;
   private wardrobeAngle = 0.35;
   private wardrobeDist = 3.1;
+  private wardrobeGear = false;
   private wardrobeKind: 'self' | 'boat' | 'pet' = 'self';
   pet!: Pet;
   private unlockedFor = 0;
@@ -346,6 +361,7 @@ export class Game {
         this.fisher.applyLook(l);
         this.boat.applyLook(l);
         this.pet.applyLook(l);
+        this.fishing.setGear(l);
         this.save.look = l;
         this.writeSave();
         this.net.sendLook(l);
@@ -552,6 +568,8 @@ export class Game {
       x: r(p.x), y: r(p.y), z: r(p.z), yaw: r(this.seated ? 0 : root.rotation.y),
       air: this.airborne,
       gun: this.gunOut,
+      gk: this.gunKind,
+      lg: r(this.loungeK),
       shots: this.shotsFired,
       pat: this.patT > 0,
       ch: this.cheersT > 0,
@@ -582,9 +600,9 @@ export class Game {
           boatOf: (id) => (id === this.net.myId ? this.boat : this.remotes.get(id)?.boat ?? null),
           seatOf: (player, owner) => this.seatOf(player, owner),
         };
-        r.onShot = (at) => {
+        r.onShot = (at, kind) => {
           const d = at.distanceTo(this.camera.position);
-          this.audio.shot(Math.max(0.12, Math.min(0.8, 24 / (d + 8))));
+          this.audio.shot(Math.max(0.12, Math.min(0.8, 24 / (d + 8))), kind);
         };
         this.remotes.set(p.id, r);
       }
@@ -788,13 +806,16 @@ export class Game {
     this.fisher.root.position.set(this.px, this.py, this.pz);
     this.fisher.onStep = (foot) => this.audio.step(this.surfaceHere(), foot);
     this.lineMat = new THREE.ShaderMaterial({
+      // Each line takes a copy, coloured from the wardrobe.
+      uniforms: { uCol: { value: new THREE.Color(0.96, 0.93, 0.82) }, uA: { value: 0.62 } },
       vertexShader: `void main(){ gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(position,1.0); }`,
-      fragmentShader: `void main(){ gl_FragColor = vec4(0.96,0.93,0.82,0.62); }`,
+      fragmentShader: `uniform vec3 uCol; uniform float uA; void main(){ gl_FragColor = vec4(uCol, uA); }`,
       transparent: true,
       depthTest: false,
       depthWrite: false,
     });
     this.fishing = new Fishing(this.scene, this.lineMat);
+    this.fishing.setGear(startLook);
     this.pipe.late.add(this.fishing.line);
     this.fishing.seen = (id) => !!this.save.journal[id];
     this.swimmers = new Swimmers((id) => !!this.save.journal[id]);
@@ -803,9 +824,14 @@ export class Game {
       this.ui.prompt(this.input.usingPad ? 'a bite! <kbd>Cross</kbd>' : 'a bite! <kbd>Space</kbd>');
     };
     this.fishing.onSlip = () => this.ui.toast('It slipped away. No matter.', 3);
+    this.fishing.onHook = (strike) => {
+      if (strike) this.ui.toast('Good strike. Well hooked.', 1.8);
+    };
+    this.fishing.onFreed = (s, x, z, heading) => this.swimmers.release(s, x, z, heading);
     this.fishing.onLanded = (s, size) => {
       const j = this.save.journal;
       const first = !j[s.id];
+      const record = !first && size > (j[s.id].biggest ?? 0);
       if (first) j[s.id] = { count: 0, firstHour: this.hour };
       j[s.id].count += 1;
       j[s.id].biggest = Math.max(j[s.id].biggest ?? 0, size);
@@ -815,7 +841,7 @@ export class Game {
       // The rare ones are worth a bit more noise.
       if (s.tier === 'epic' || s.tier === 'legendary') this.audio.landed();
       this.cardOpen = true;
-      this.ui.showCard(s, first, this.hour, j[s.id].count, size, this.input.usingPad ? '<kbd>Cross</kbd> let it go' : '<kbd>Space</kbd> let it go');
+      this.ui.showCard(s, first, this.hour, j[s.id].count, size, this.input.usingPad ? '<kbd>Cross</kbd> let it go' : '<kbd>Space</kbd> let it go', weightKg(s, size), record);
       this.net.sendCatch(s.id);
     };
     this.boat.onCatch = (p) => this.audio.oarCatch(p);
@@ -1087,7 +1113,7 @@ export class Game {
       else if (atBoat) prompt = `${E} step into the boat`;
       else if (benchD < 2.3) prompt = `${E} sit a while`;
       else if (doorD < 2.3) prompt = `${E} go in and rest`;
-      else if (onDeck && this.px < -6 && !this.hintedCast) prompt = pad ? 'hold <kbd>Cross</kbd> to cast from here' : 'hold <kbd>Space</kbd> to cast from here';
+      else if (onDeck && this.px < -6 && !this.hintedCast && !this.gunOut) prompt = pad ? 'hold <kbd>Cross</kbd> to cast from here' : 'hold <kbd>Space</kbd> to cast from here';
       else if (!this.strolling && this.speed < 0.1 && !onDeck && this.idleT > 8 && !this.hintedBoat) prompt = pad ? '<kbd>Triangle</kbd> stroll along the path' : '<kbd>Q</kbd> stroll along the path';
     }
     if (canUse && !this.ui.menuOpen) this.ui.prompt(this.withSocial(prompt));
@@ -1147,12 +1173,12 @@ export class Game {
     return f.active && !(f.state === 'charge' && this.chargeByKey && this.chargeT < TAP_S && this.mode === 'walk');
   }
 
-  private enterSit(kind: 'dock' | 'bench') {
+  private enterSit(kind: 'dock' | 'bench' | 'ground') {
     this.sitKind = kind;
     const from = this.fisher.root.position.clone();
     const b = this.props.bench;
-    const target = kind === 'dock' ? new THREE.Vector3(JETTY.endX + 0.28, DECK_Y - 0.02, 0) : new THREE.Vector3(b.x, b.y - 0.47, b.z);
-    const toYaw = kind === 'dock' ? Math.PI / 2 : b.rot;
+    const target = kind === 'dock' ? new THREE.Vector3(JETTY.endX + 0.28, DECK_Y - 0.02, 0) : kind === 'ground' ? new THREE.Vector3(this.px, this.py, this.pz) : new THREE.Vector3(b.x, b.y - 0.47, b.z);
+    const toYaw = kind === 'dock' ? Math.PI / 2 : kind === 'ground' ? this.facing : b.rot;
     this.ui.prompt(null);
     this.tr = {
       t: 0, dur: 1.0, from, to: () => target, fromYaw: this.facing, toYaw: () => toYaw,
@@ -1163,8 +1189,10 @@ export class Game {
         this.py = target.y;
         this.facing = toYaw;
         this.ui.toast('', 0.01);
-        this.ui.prompt(this.input.usingPad ? '<kbd>Square</kbd> get up, <kbd>L1</kbd> a beer' : '<kbd>E</kbd> get up, <kbd>B</kbd> a beer');
-        setTimeout(() => this.ui.prompt(null), 3500);
+        if (kind !== 'ground') {
+          this.ui.prompt(this.input.usingPad ? '<kbd>Square</kbd> get up, <kbd>R3</kbd> lean back, <kbd>L1</kbd> a beer' : '<kbd>E</kbd> get up, <kbd>V</kbd> lean back, <kbd>B</kbd> a beer');
+          setTimeout(() => this.ui.prompt(null), 3500);
+        }
       },
     };
     this.mode = 'transition';
@@ -1176,22 +1204,33 @@ export class Game {
     f.root.rotation.set(0, this.facing, 0);
     const inp = this.input;
     const anyMove = Math.abs(inp.moveX) + Math.abs(inp.moveY) > 0.2;
-    if (inp.was('KeyE') || inp.was('PadSquare') || anyMove) {
-      const back = this.sitKind === 'dock'
-        ? new THREE.Vector3(JETTY.endX + 2.0, DECK_Y, 0)
+    // From the end of the jetty, sitting or not, a line can still go out.
+    const castHere = this.sitKind === 'dock' || (this.sitKind === 'ground' && onJetty(this.px, this.pz) && this.px < -6);
+    if (castHere && !this.gunOut) this.handleCast(dt, new THREE.Vector3(this.px, this.py + 1.0, this.pz));
+    if (((inp.was('KeyE') || inp.was('PadSquare')) && !this.fishing.active) || anyMove) this.leaveSit();
+  }
+
+  /** Up on your feet again. */
+  private leaveSit() {
+    if (this.mode !== 'sit') return;
+    this.fishing.reelIn();
+    this.relax = false;
+    const back = this.sitKind === 'dock'
+      ? new THREE.Vector3(JETTY.endX + 2.0, DECK_Y, 0)
+      : this.sitKind === 'ground'
+        ? new THREE.Vector3(this.px, this.py, this.pz)
         : new THREE.Vector3(this.px + Math.sin(this.facing) * -0.7, groundY(this.px - Math.sin(this.facing) * 0.7, this.pz - Math.cos(this.facing) * 0.7), this.pz - Math.cos(this.facing) * 0.7);
-      this.ui.prompt(null);
-      this.tr = {
-        t: 0, dur: 0.75, from: f.root.position.clone(), to: () => back, fromYaw: this.facing, toYaw: () => this.facing,
-        done: () => {
-          this.mode = 'walk';
-          this.px = back.x;
-          this.pz = back.z;
-          this.py = back.y;
-        },
-      };
-      this.mode = 'transition';
-    }
+    this.ui.prompt(null);
+    this.tr = {
+      t: 0, dur: 0.75, from: this.fisher.root.position.clone(), to: () => back, fromYaw: this.facing, toYaw: () => this.facing,
+      done: () => {
+        this.mode = 'walk';
+        this.px = back.x;
+        this.pz = back.z;
+        this.py = back.y;
+      },
+    };
+    this.mode = 'transition';
   }
 
   // ---- Boat ---------------------------------------------------------------------------------------
@@ -1617,31 +1656,70 @@ export class Game {
 
   private toggleGun() {
     if (this.fishing.active || this.beer.active || !this.canHoldGun) return;
+    if (this.relax) this.endRelax();
     this.gunOut = !this.gunOut;
     this.audio.uiTick();
-    this.ui.sights(this.gunOut ? this.rounds : null);
+    this.showSights();
     if (!this.gunOut) {
       // Back to the usual view without a lurch.
       this.pitch = clamp(this.pitch, -0.55, 1.1);
     } else if (!this.hintedGun) {
       this.hintedGun = true;
-      this.ui.hint(this.input.usingPad ? '<kbd>R2</kbd> fire, <kbd>R1</kbd> put it away' : '<kbd>Click</kbd> fire, <kbd>G</kbd> put it away', 6);
+      this.ui.hint(this.input.usingPad
+        ? '<kbd>R2</kbd> fire, <kbd>L2</kbd> aim, <kbd>Right</kbd> next gun, <kbd>Left</kbd> reload, <kbd>R1</kbd> put it away'
+        : '<kbd>Click</kbd> fire, <kbd>Right-click</kbd> aim<br><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> or scroll to change gun, <kbd>R</kbd> reload, <kbd>G</kbd> put it away', 8);
     }
   }
 
+  private showSights() {
+    const spec = GUNS[this.gunKind];
+    this.ui.sights(this.gunOut ? { rounds: this.ammo[this.gunKind], magazine: spec.magazine, kind: this.gunKind, name: spec.name, reloading: this.reloadT > 0 } : null);
+  }
+
+  /** Another gun to hand. It comes out if it wasn't already. */
+  private selectGun(kind: GunKind) {
+    if (this.fishing.active || this.beer.active || !this.canHoldGun) return;
+    if (kind === this.gunKind && this.gunOut) return;
+    if (this.relax) this.endRelax();
+    this.gunKind = kind;
+    this.gunOut = true;
+    this.reloadT = 0;
+    this.cycleT = 0.35;
+    this.fisher.setGun(kind);
+    this.audio.uiTick();
+    if (this.ammo[kind] <= 0) this.startReload();
+    this.showSights();
+    if (GUNS[kind].scope && !this.hintedScope) {
+      this.hintedScope = true;
+      this.ui.hint(this.input.usingPad ? 'hold <kbd>L2</kbd> to look through the scope' : 'hold <kbd>Right-click</kbd> to look through the scope', 5);
+    }
+  }
+
+  private startReload() {
+    const spec = GUNS[this.gunKind];
+    if (this.reloadT > 0 || this.ammo[this.gunKind] >= spec.magazine) return;
+    this.reloadT = spec.reload;
+    this.audio.reloadOf(this.gunKind);
+    this.showSights();
+  }
+
   private fireGun() {
-    if (this.rounds <= 0) return;
+    const kind = this.gunKind;
+    const spec = GUNS[kind];
+    if (this.ammo[kind] <= 0 || this.reloadT > 0 || this.cycleT > 0) return;
     // The bullet goes where the sights were. The kick comes after.
     const dir = this.shotDir();
-    const hit = this.hunt.fire(this.camera.position, dir);
-    this.rounds -= 1;
+    const hit = this.hunt.fire(this.camera.position, dir, spec.reach, spec.spread);
+    this.ammo[kind] -= 1;
     this.shotsFired += 1;
     this.recoil = 1;
-    this.flashT = 0.055;
-    this.pitch -= 0.036;
-    this.audio.shot(1);
-    this.ui.sights(this.rounds);
-    if (this.rounds === 0) this.reloadT = 1.7;
+    this.flashT = kind === 'shotgun' ? 0.075 : 0.055;
+    this.pitch -= spec.kick * (1 - this.aimK * 0.5);
+    this.audio.shot(1, kind);
+    this.cycleT = spec.cycle;
+    if (kind === 'rifle' && this.ammo[kind] > 0) this.audio.bolt();
+    if (this.ammo[kind] === 0) this.startReload();
+    this.showSights();
     if (hit) {
       this.save.birds[hit.name] = (this.save.birds[hit.name] ?? 0) + hit.count;
       const best = hit.distance > this.save.bestShot;
@@ -1660,15 +1738,34 @@ export class Game {
   private updateGun(dt: number, menu: boolean) {
     const inp = this.input;
     if (!menu && (inp.was('KeyG') || inp.was('PadR1'))) this.toggleGun();
+    if (!menu) {
+      const pick = inp.was('Digit1') ? 'pistol' : inp.was('Digit2') ? 'rifle' : inp.was('Digit3') ? 'shotgun' : null;
+      if (pick) this.selectGun(pick);
+      // Scrolling, or right on the pad, goes round them in turn.
+      if (this.gunOut) this.wheelAcc += inp.wheel;
+      else this.wheelAcc = 0;
+      const step = Math.abs(this.wheelAcc) > 60 ? Math.sign(this.wheelAcc) : inp.was('PadRight') ? 1 : 0;
+      if (step && this.gunOut) {
+        this.wheelAcc = 0;
+        const i = GUN_ORDER.indexOf(this.gunKind);
+        this.selectGun(GUN_ORDER[(i + step + GUN_ORDER.length) % GUN_ORDER.length]);
+      }
+      if (this.gunOut && (inp.was('KeyR') || inp.was('PadLeft'))) this.startReload();
+    }
     this.recoil = Math.max(0, this.recoil - dt * 6);
+    this.cycleT = Math.max(0, this.cycleT - dt);
     if (this.reloadT > 0) {
       this.reloadT -= dt;
       if (this.reloadT <= 0) {
-        this.rounds = MAGAZINE;
-        this.audio.reload();
-        if (this.gunOut) this.ui.sights(this.rounds);
+        this.reloadT = 0;
+        this.ammo[this.gunKind] = GUNS[this.gunKind].magazine;
+        this.showSights();
       }
     }
+    const aiming = this.gunOut && this.canHoldGun && !menu && inp.aim;
+    this.aimK = damp(this.aimK, aiming ? 1 : 0, 9, dt);
+    if (this.aimK < 0.002) this.aimK = 0;
+    this.ui.scope(this.gunOut && GUNS[this.gunKind].scope && this.aimK > 0.6);
     if (this.gunOut && !menu && this.canHoldGun && !this.wasMenu && (inp.was('Mouse') || inp.was('PadR2'))) this.fireGun();
     if (this.gunOut && !this.canHoldGun) {
       this.gunOut = false;
@@ -1677,6 +1774,55 @@ export class Game {
     this.flashT = Math.max(0, this.flashT - dt);
     this.flash.visible = this.flashT > 0;
     if (this.flash.visible) this.flash.position.copy(this.fisher.gunTip);
+  }
+
+  // ---- Sitting back ---------------------------------------------------------------------------------
+
+  private get canRelax(): boolean {
+    return this.mode === 'walk' || this.mode === 'sit' || this.mode === 'row' || this.mode === 'ride' || (this.mode === 'transition' && this.relax);
+  }
+
+  private updateRelax(dt: number, menu: boolean) {
+    const inp = this.input;
+    if (!menu && (inp.was('KeyV') || inp.was('PadR3'))) {
+      if (this.relax) this.endRelax();
+      else this.startRelax();
+    }
+    // A step, or a pull on the oars, and you're back up.
+    if (this.relax && !menu && this.mode !== 'sit' && this.mode !== 'transition' && Math.abs(inp.moveX) + Math.abs(inp.moveY) > 0.2) this.endRelax();
+    if (this.relax && (this.gunOut || !this.canRelax)) this.endRelax();
+    // In slowly, out a little quicker.
+    this.relaxK = clamp(this.relaxK + (this.relax ? dt / 1.9 : -dt / 1.3), 0, 1);
+    this.loungeK = damp(this.loungeK, this.relax ? 1 : 0, 2.2, dt);
+    if (this.loungeK < 0.002) this.loungeK = 0;
+  }
+
+  private startRelax() {
+    if (this.gunOut || this.airborne || !this.canRelax || this.mode === 'transition') return;
+    if (this.mode === 'walk') {
+      if (this.speed > 0.6) this.speed = 0;
+      this.strolling = false;
+      this.enterSit('ground');
+    }
+    this.relax = true;
+    this.audio.uiTick();
+    if (!this.hintedRelax) {
+      this.hintedRelax = true;
+      this.ui.hint(this.input.usingPad ? 'Sitting back. Look around with the right stick.<br><kbd>R3</kbd> or move to get up' : 'Sitting back. Look around with the mouse.<br><kbd>V</kbd> or move to get up', 6);
+    }
+  }
+
+  endRelax() {
+    if (!this.relax) return;
+    this.relax = false;
+    this.pitch = clamp(this.pitch, -0.55, 1.1);
+    if (this.mode === 'sit' && this.sitKind === 'ground') this.leaveSit();
+  }
+
+  /** Just in front of the fisher's eyes. */
+  private eyePos(out: THREE.Vector3): THREE.Vector3 {
+    this.fisher.head.updateWorldMatrix(true, false);
+    return out.set(0, 0.08, -0.1).applyMatrix4(this.fisher.head.matrixWorld);
   }
 
   private aimDir(): THREE.Vector3 {
@@ -1705,8 +1851,10 @@ export class Game {
     const inp = this.input;
     const looked = Math.abs(inp.lookX) + Math.abs(inp.lookY) > 0.0005;
     if (!this.anyMenuOpen()) {
-      this.yaw -= inp.lookX;
-      this.pitch = clamp(this.pitch + inp.lookY, -0.55, 1.1);
+      // Zoomed in, the same hand movement turns the view less.
+      const slow = this.gunOut ? Math.min(1, this.camera.fov / 40) : 1;
+      this.yaw -= inp.lookX * slow;
+      this.pitch = this.relax ? clamp(this.pitch + inp.lookY, -1.3, 1.25) : clamp(this.pitch + inp.lookY * slow, -0.55, 1.1);
     }
     const moving = Math.abs(inp.moveX) + Math.abs(inp.moveY) > 0.02;
     if (looked || moving || inp.action) this.idleT = 0;
@@ -1717,6 +1865,11 @@ export class Game {
       if (inp.dragging) this.wardrobeAngle -= inp.lookX * 1.6;
       const kind = this.wardrobeKind === 'pet' && !this.pet.exists ? 'self' : this.wardrobeKind;
       const [dMin, dMax] = kind === 'boat' ? [4, 16] : kind === 'pet' ? [0.8, 4] : [0.95, 4.6];
+      const gear = kind === 'self' && this.ui.wardrobe.group === 'Gear';
+      if (gear !== this.wardrobeGear) {
+        this.wardrobeGear = gear;
+        if (gear) this.wardrobeDist = Math.max(this.wardrobeDist, 4.4);
+      }
       this.wardrobeDist = clamp(this.wardrobeDist * Math.exp(inp.wheel * 0.0011), dMin, dMax);
       inp.wheel = 0;
       const p = kind === 'boat' ? new THREE.Vector3(this.boat.x, this.boat.y, this.boat.z) : kind === 'pet' ? this.pet.worldPos() : this.fisher.root.getWorldPosition(new THREE.Vector3());
@@ -1744,27 +1897,36 @@ export class Game {
     }
     inp.wheel = 0;
 
-    // Sighting along the pistol, just behind the right shoulder.
+    // Sighting along the gun, just behind the right shoulder. Aiming brings the view in; with the rifle, right
+    // up to the eye and through the scope.
     if (this.gunOut && this.canHoldGun) {
       this.pitch = clamp(this.pitch, -1.25, 0.55);
+      const spec = GUNS[this.gunKind];
+      const scope = spec.scope ? smoothstep(0.1, 0.9, this.aimK) : 0;
       const cp = Math.cos(this.pitch);
       const dir = new THREE.Vector3(-Math.sin(this.yaw) * cp, -Math.sin(this.pitch), -Math.cos(this.yaw) * cp);
       const head = this.fisher.root.getWorldPosition(new THREE.Vector3());
       head.y += this.fisher.eyeHeight - (this.seated ? 0.42 : 0.02);
       const side = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
-      const pos = head.clone().addScaledVector(side, 0.68).addScaledVector(dir, -2.4);
-      pos.y += 0.18 + this.recoil * 0.05;
+      const near = spec.scope ? 0 : this.aimK;
+      const pos = head.clone().addScaledVector(side, 0.68 - near * 0.2).addScaledVector(dir, -2.4 + near * 1.0);
+      pos.y += 0.18 - near * 0.06 + this.recoil * 0.05;
       pos.y = Math.max(pos.y, Math.max(groundY(pos.x, pos.z), 0.25) + 0.3);
-      this.camera.position.lerp(pos, 1 - Math.exp(-dt * 16));
+      if (scope > 0) pos.lerp(this.eyePos(this.eyeTmp).addScaledVector(dir, 0.12), scope);
+      this.camera.position.lerp(pos, scope > 0.5 ? 1 : 1 - Math.exp(-dt * 16));
       this.camera.lookAt(this.camera.position.clone().addScaledVector(dir, 60));
-      this.fov = damp(this.fov, 40, 8, dt);
+      this.fov = damp(this.fov, spec.scope ? 40 - scope * 32 : 40 - this.aimK * 11, 12, dt);
       if (this.camera.fov !== this.fov) {
         this.camera.fov = this.fov;
         this.camera.updateProjectionMatrix();
       }
+      // Through the scope there's no head in the way, and no gun either.
+      this.fisher.setFirstPerson(scope > 0.5);
+      if (scope > 0.5) this.fisher.gun.visible = false;
       this.idleT = 0;
       return;
     }
+    if (this.relaxK <= 0) this.fisher.setFirstPerson(false);
 
     // Target.
     let desiredDist = 6.4;
@@ -1800,7 +1962,7 @@ export class Game {
       fov -= 3;
     }
     // After a long stillness the camera breathes slowly round on its own.
-    if (this.idleT > 35 && this.mode !== 'title') {
+    if (this.idleT > 35 && this.mode !== 'title' && this.relaxK <= 0) {
       const k = smoothstep(35, 50, this.idleT);
       this.yaw += dt * 0.012 * k;
     }
@@ -1870,8 +2032,25 @@ export class Game {
       this.camera.position.copy(pos);
       this.camera.lookAt(this.focus);
     }
-    if (Math.abs(this.camera.fov - this.fov) > 0.01) {
-      this.camera.fov = this.fov;
+    let fovNow = this.fov;
+    // Sitting back: the view glides in over the shoulder and into the fisher's own eyes.
+    if (this.relaxK > 0 && this.mode !== 'intro') {
+      const k = this.relaxK;
+      const e = k * k * k * (k * (k * 6 - 15) + 10);
+      // While it settles, the eyes come up to the horizon, unless you look somewhere yourself.
+      if (this.relax && k < 1 && !looked) this.pitch = damp(this.pitch, 0.06, 1.4, dt);
+      const cpR = Math.cos(this.pitch);
+      const look = new THREE.Vector3(-Math.sin(this.yaw) * cpR, -Math.sin(this.pitch), -Math.cos(this.yaw) * cpR);
+      const eye = this.eyePos(this.eyeTmp);
+      const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(eye, eye.clone().add(look), new THREE.Vector3(0, 1, 0)));
+      this.camera.position.lerp(eye, e);
+      this.camera.quaternion.slerp(q, e);
+      fovNow = this.fov + (58 - this.fov) * e;
+      this.fisher.setFirstPerson(e > 0.82);
+      this.idleT = 0;
+    }
+    if (Math.abs(this.camera.fov - fovNow) > 0.01) {
+      this.camera.fov = fovNow;
       this.camera.updateProjectionMatrix();
     }
   }
@@ -2069,6 +2248,7 @@ export class Game {
     this.updateBeer(dt, menu);
 
     if (!warm && this.mode !== 'title') this.updateGun(dt, menu);
+    if (!warm && this.mode !== 'title') this.updateRelax(dt, menu);
     if (!warm) this.updateSocial(dt, menu);
     if (!warm) this.fireworks.update(dt, this.camera, this.pipe.h);
     if (!warm && this.mode !== 'title') this.swimmers.update(dt, t, this.fisher.root.getWorldPosition(this.seatTmp), this.hour, this.water, this.fishing);
@@ -2076,6 +2256,7 @@ export class Game {
     const pose = this.buildPose();
     this.lastPose = pose;
     this.fisher.update(dt, t, pose);
+    this.fishing.preview(this.ui.wardrobe.open && this.wardrobeKind === 'self' && this.ui.wardrobe.group === 'Gear' && this.ui.wardrobe.activeKey !== 'gunFinish', this.fisher.rodTip, t);
     this.pet.update(dt, t, {
       pos: this.fisher.root.getWorldPosition(this.petTmp2),
       facing: this.seated ? this.vessel.heading : this.facing,
@@ -2178,9 +2359,13 @@ export class Game {
   private buildPose(): PoseInput {
     const f = this.fishing;
     let mode: PoseMode = 'stand';
-    if (this.mode === 'sit') mode = this.sitKind === 'dock' ? 'dockSit' : 'benchSit';
-    const showing = this.fishingShows && !this.gunOut;
-    if (this.inBoat) mode = showing || this.gunOut ? 'boatSit' : 'row';
+    if (this.mode === 'sit') mode = this.sitKind === 'dock' ? 'dockSit' : this.sitKind === 'ground' ? 'groundSit' : 'benchSit';
+    // Trying things on: the rod held up with its float hanging, or each gun in turn for the finish.
+    const w = this.ui.wardrobe;
+    const gearView = w.open && this.wardrobeKind === 'self' && w.group === 'Gear';
+    const gunView = gearView && w.activeKey === 'gunFinish';
+    const showing = (this.fishingShows && !this.gunOut) || (gearView && !gunView);
+    if (this.inBoat) mode = showing || this.gunOut || this.loungeK > 0.3 ? 'boatSit' : 'row';
     if (this.rideWith) mode = 'boatSit';
     const handleL = new THREE.Vector3();
     const handleR = new THREE.Vector3();
@@ -2208,6 +2393,14 @@ export class Game {
       this.fisher.root.rotation.y = this.facing;
     }
     const ph = this.boat.oarPhase;
+    const fwd = new THREE.Vector3(-Math.sin(this.facingYaw()), 0, -Math.cos(this.facingYaw()));
+    const shownGun: GunKind = gunView ? GUN_ORDER[Math.floor(this.time / 2.4) % GUN_ORDER.length] : this.gunKind;
+    const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
+    const rodDir = gunView
+      ? fwd.clone().addScaledVector(new THREE.Vector3(0, 1, 0), -0.2).normalize()
+      : this.gunOut ? this.shotDir()
+        : gearView ? fwd.clone().multiplyScalar(0.6).addScaledVector(right, 0.6).add(new THREE.Vector3(0, 0.5, 0)).normalize()
+          : this.rodAim().applyAxisAngle(new THREE.Vector3(0, 1, 0), -0.55 * this.loungeK);
     return {
       mode,
       speed: this.mode === 'walk' ? this.speed : this.mode === 'transition' ? 1.2 : 0,
@@ -2216,13 +2409,15 @@ export class Game {
       rowLean: this.boat.rowing ? -Math.cos(ph) : -Math.cos(ph) * 0.25,
       fishing: showing,
       air: this.airborne,
-      gun: this.gunOut,
+      gun: this.gunOut || gunView,
+      gunKind: shownGun,
+      lounge: this.loungeK,
       recoil: this.recoil,
       pat: this.patK,
       patAt: this.patK > 0.01 && this.pet.exists ? this.pet.headTop(this.patTarget) : undefined,
       cheers: this.cheersK,
-      rodDir: this.gunOut ? this.shotDir() : this.rodAim(),
-      rodBend: f.bendAmount(this.time),
+      rodDir,
+      rodBend: gearView ? 0.12 : f.bendAmount(this.time),
       reelSpin: f.reelSpin,
       beerOut: this.beer.out,
       beerLift: this.beer.lift,
@@ -2234,6 +2429,8 @@ export class Game {
     return {
       ready: true,
       game: this,
+      THREE,
+      species: (id: string) => SPECIES.find((x) => x.id === id) ?? null,
       setHour: (h: number) => {
         this.hour = h;
         this.clockRunning = false;

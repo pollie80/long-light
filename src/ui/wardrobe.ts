@@ -2,7 +2,7 @@
 import { BOAT_GROUPS, CharacterLook, DEFAULT_LOOK, GROUPS, PET_GROUPS, PICKS, PickKey, randomLook, SLIDERS, SliderKey } from '../actors/look';
 import { ICON } from './icons';
 
-const TAB_ICON: Record<string, string> = { Face: ICON.face, Hair: ICON.scissors, Hat: ICON.hat, Clothes: ICON.shirt, Body: ICON.ruler, Boat: ICON.boat, Colours: ICON.brush };
+const TAB_ICON: Record<string, string> = { Face: ICON.face, Hair: ICON.scissors, Hat: ICON.hat, Clothes: ICON.shirt, Body: ICON.ruler, Gear: ICON.hook, Boat: ICON.boat, Colours: ICON.brush };
 
 export interface WardrobePanel {
   title: string;
@@ -27,7 +27,7 @@ export class Wardrobe {
   private body: HTMLElement;
   private tabs: HTMLElement;
   private panel = LOOK_PANEL;
-  private group = GROUPS[0];
+  group = GROUPS[0];
   private focusI = 0;
   private padPrev: boolean[] = [];
 
@@ -101,6 +101,12 @@ export class Wardrobe {
     this.render();
   }
 
+  /** The row being changed, so the figure can hold up whatever it is about. */
+  get activeKey(): string {
+    const r = this.rows()[this.focusI];
+    return r?.dataset.pick ?? r?.dataset.slider ?? '';
+  }
+
   private rows(): HTMLElement[] {
     return Array.from(this.body.querySelectorAll<HTMLElement>('.wRow'));
   }
@@ -155,6 +161,11 @@ export class Wardrobe {
       const el = document.createElement('div');
       el.className = 'wRow';
       el.dataset.pick = row.key;
+      // Working on a row with the mouse makes it the one in focus, as the arrow keys would.
+      el.addEventListener('pointerdown', () => {
+        this.focusI = this.rows().indexOf(el);
+        this.showFocus();
+      });
       const current = row.choices.find((c) => c.id === look[row.key]) ?? row.choices[0];
       const label = document.createElement('label');
       label.textContent = row.label;

@@ -130,7 +130,7 @@ check('walking speed setting works', w200 / w100 > 1.6 && w200 / w100 < 2.4, `${
 check('speed setting is saved', await page.evaluate(() => JSON.parse(localStorage.getItem('longlight.save.v1')).walkSpeed === 2));
 await page.evaluate(() => __ll.game.ui.hooks.setWalkSpeed(1));
 
-// The shotgun.
+// The Desert Eagle.
 await page.evaluate(() => __ll.place(-12, 0, 1.57));
 await wait(400);
 await page.keyboard.press('KeyG');
@@ -167,18 +167,18 @@ const birds0 = await page.evaluate(() => Object.values(__ll.game.save.birds).red
 await shootOne();
 const birds1 = await page.evaluate(() => Object.values(__ll.game.save.birds).reduce((a, b) => a + b, 0));
 check('a shot brings a bird down', birds1 > birds0, `${birds0} then ${birds1}`);
-check('and uses a round', (await page.evaluate(() => __ll.game.rounds)) === 6);
+check('and uses a round', (await page.evaluate(() => __ll.game.ammo.pistol)) === 6);
 await shot('gun-fired');
 await shootOne();
-check('two shots use two rounds', (await page.evaluate(() => __ll.game.rounds)) === 5);
+check('two shots use two rounds', (await page.evaluate(() => __ll.game.ammo.pistol)) === 5);
 for (let i = 0; i < 5; i++) {
   await page.mouse.down();
   await page.mouse.up();
-  await wait(120);
+  await wait(170);
 }
-check('seven empty it', (await page.evaluate(() => __ll.game.rounds)) === 0);
+check('seven empty it', (await page.evaluate(() => __ll.game.ammo.pistol)) === 0);
 await wait(2000);
-check('then it reloads', (await page.evaluate(() => __ll.game.rounds)) === 7);
+check('then it reloads', (await page.evaluate(() => __ll.game.ammo.pistol)) === 7);
 await page.evaluate(() => { __ll.game.pitch = 0; });
 await page.keyboard.press('KeyG');
 await wait(400);

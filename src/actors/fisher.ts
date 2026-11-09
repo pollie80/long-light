@@ -1,7 +1,8 @@
 // The fisher: straw hat, mustard coat, red scarf. Limbs are a hand-animated rig with two-bone arms.
 import * as THREE from 'three';
 import { Builder, solid, TRS } from '../world/builder';
-import { paintedMaterial } from '../render/shared';
+import { L, paintedMaterial } from '../render/shared';
+import { buildGun, GunKind, GUNS } from '../game/guns';
 import { damp } from '../core/noise';
 import { CharacterLook, figureKey, DEFAULT_LOOK } from './look';
 import { buildBody } from './outfit';
@@ -9,7 +10,7 @@ import { buildBody } from './outfit';
 const UP_LEN = 0.29;
 const FO_LEN = 0.27;
 
-export type PoseMode = 'stand' | 'row' | 'boatSit' | 'dockSit' | 'benchSit';
+export type PoseMode = 'stand' | 'row' | 'boatSit' | 'dockSit' | 'benchSit' | 'groundSit';
 
 export interface PoseInput {
   mode: PoseMode;
@@ -27,11 +28,13 @@ export interface PoseInput {
   beerOut?: number; // 0 in the basket, 1 in the left hand
   beerLift?: number; // 0 held at the chest, 1 at the mouth
   air?: boolean; // off the ground, jumping
-  gun?: boolean; // pistol held out in both hands, pointing along rodDir
+  gun?: boolean; // a gun up, pointing along rodDir
+  gunKind?: GunKind; // which one: a pistol is held out in both hands, the others to the shoulder
   recoil?: number; // 1 the instant it fires, falling to 0
   pat?: number; // 0 upright, 1 crouched over the pet with a hand on it
   patAt?: THREE.Vector3; // the top of the pet's head, in world space
   cheers?: number; // 0 to 1, bottle raised to clink
+  lounge?: number; // 0 upright, 1 leant right back to watch the sky
 }
 
 const Y_NEG = new THREE.Vector3(0, -1, 0);
@@ -63,8 +66,14 @@ export class Fisher {
   private breath = 0;
   private a = { lean: 0, thigh: 0, shin: 0, seat: 0, dangle: 0, air: 0, land: 0 };
   private wasInAir = false;
-  /** The pistol: laid along -z from the grip, placed in world space like the rod. */
+  /** The gun in hand: laid along -z from the grip, placed in world space like the rod. */
   gun = new THREE.Group();
+  gunKind: GunKind = 'pistol';
+  private gunMesh: THREE.Mesh | null = null;
+  private gunKey = '';
+  private rodKey = '';
+  /** Seen from inside the head: the head is left out of this player's own view, but not its reflection. */
+  private fp = false;
   gunTip = new THREE.Vector3();
   private gunDirSmooth = new THREE.Vector3(0, 0, -1);
   private gunMat = paintedMaterial();
@@ -172,27 +181,78 @@ export class Fisher {
     this.rodMesh = solid(this.rodGeo, this.mat, false);
     this.rodMesh.frustumCulled = false;
     this.applyLook(look);
-    const g = new Builder(61);
-    // A big, square, polished semi-automatic: long slide, deep muzzle, chunky grip.
-    const STEEL = 0xa8acb2;
-    g.box(0.042, 0.055, 0.29, STEEL, TRS(0, 0.062, -0.1), { jit: 0.03 }, 0.006);
-    g.box(0.038, 0.012, 0.22, 0x7a7e84, TRS(0, 0.096, -0.11), {}, 0.003);
-    g.box(0.044, 0.062, 0.05, 0x8a8e94, TRS(0, 0.058, -0.235), {}, 0.006);
-    g.cyl(0.0085, 0.0085, 0.006, 0x101012, TRS(0, 0.066, -0.262, Math.PI / 2, 0, 0), {}, 8);
-    g.box(0.04, 0.03, 0.2, 0x4a4c50, TRS(0, 0.018, -0.1), {}, 0.005);
-    g.box(0.038, 0.13, 0.058, 0x1e1e22, TRS(0, -0.052, 0.012, -0.22, 0, 0), { jit: 0.05 }, 0.012);
-    g.add(new THREE.TorusGeometry(0.026, 0.0045, 6, 12), 0x3a3c40, TRS(0, -0.012, -0.056, 0, Math.PI / 2, 0));
-    g.box(0.008, 0.03, 0.008, 0x18181a, TRS(0, -0.01, -0.052, 0.3, 0, 0), {}, 0.002);
-    g.box(0.012, 0.014, 0.012, 0x18181a, TRS(0, 0.098, -0.232), {}, 0.002);
-    g.box(0.03, 0.014, 0.014, 0x18181a, TRS(0, 0.098, 0.03), {}, 0.003);
-    g.box(0.014, 0.02, 0.016, 0x3a3c40, TRS(0, 0.086, 0.052, -0.4, 0, 0), {}, 0.003);
-    this.gun.add(solid(g.build(), this.gunMat, false));
     this.gun.visible = false;
+  }
+
+  /** Which gun is in hand. Rebuilt only when the gun or its finish changes. */
+  setGun(kind: GunKind) {
+    this.gunKind = kind;
+    const key = `${kind}:${this.look.gunFinish}`;
+    if (key === this.gunKey) return;
+    this.gunKey = key;
+    if (this.gunMesh) {
+      this.gun.remove(this.gunMesh);
+      this.gunMesh.geometry.dispose();
+    }
+    this.gunMesh = solid(buildGun(kind, this.look.gunFinish), this.gunMat, false);
+    this.gun.add(this.gunMesh);
+  }
+
+  /** The rod's two colours, grip and blank, or a pattern along it. */
+  private paintRod(id: string) {
+    if (id === this.rodKey) return;
+    this.rodKey = id;
+    const P: Record<string, [number, number, number]> = {
+      cane: [0x4a3428, 0xa9835a, 0], carbon: [0x1c1c20, 0x34383f, 0], glass: [0xc8a070, 0xe8e2d4, 0], red: [0xc8a070, 0xa83226, 0],
+      green: [0x262626, 0x2f5a36, 0], gold: [0x2a2622, 0xd9aa3a, 0.12], glow: [0x1c1c20, 0x7dffa0, 0.9], stick: [0x4e3a2a, 0x6e5438, 0],
+    };
+    const cols = this.rodGeo.attributes.color as THREE.BufferAttribute;
+    const em = this.rodGeo.attributes.aEmis as THREE.BufferAttribute;
+    const SIDES = 5;
+    const c = new THREE.Color();
+    const p = P[id] ?? P.cane;
+    for (let i = 0; i < cols.count; i++) {
+      const r = Math.floor(i / SIDES);
+      let e = r < 3 ? 0 : p[2];
+      if (id === 'candy') c.set(r < 3 ? 0xf4f0e8 : Math.floor(r / 1.5) % 2 ? 0xd8342a : 0xf4f0e8);
+      else if (id === 'rainbow') {
+        if (r < 3) c.set(0x262626);
+        else c.setHSL((r - 3) / 13, 0.8, 0.55);
+        e = r < 3 ? 0 : 0.15;
+      } else c.set(r < 3 ? p[0] : p[1]);
+      cols.setXYZ(i, c.r, c.g, c.b);
+      em.setX(i, e);
+    }
+    cols.needsUpdate = true;
+    em.needsUpdate = true;
+  }
+
+  /** The camera is in the head: leave the head out of this view, but keep it in the water's reflection. */
+  setFirstPerson(on: boolean) {
+    if (on === this.fp) return;
+    this.fp = on;
+    this.layerHead();
+  }
+
+  private layerHead() {
+    this.head.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      if (this.fp) {
+        m.layers.disable(L.OPAQUE);
+        m.layers.enable(L.REFLECT_ONLY);
+      } else {
+        m.layers.enable(L.OPAQUE);
+        m.layers.disable(L.REFLECT_ONLY);
+      }
+    });
   }
 
   /** Replaces every mesh on the rig with the given look. Cheap enough to call on each wardrobe click. */
   applyLook(look: CharacterLook) {
     this.look = look;
+    this.paintRod(look.rod);
+    this.setGun(this.gunKind);
     const key = figureKey(look);
     if (key === this.figure) return;
     this.figure = key;
@@ -231,6 +291,7 @@ export class Fisher {
     this.head.position.y = 0.535 - (look.head - 1) * 0.01;
     this.k = look.height;
     this.root.scale.setScalar(look.height);
+    if (this.fp) this.layerHead();
   }
 
   /** Standing height of the fisher's eyes above the feet. */
@@ -345,6 +406,9 @@ export class Fisher {
     this.a.seat = damp(this.a.seat, seatedT, 7, dt);
 
     const breathe = Math.sin(this.breath * 1.3) * 0.012;
+    const lounge = sitting ? pose.lounge ?? 0 : 0;
+    if (pose.gunKind && pose.gunKind !== this.gunKind) this.setGun(pose.gunKind);
+    const longGun = !!pose.gun && GUNS[this.gunKind].long;
 
     if (!sitting) {
       const bob = Math.abs(Math.cos(ph)) * 0.03 * walkAmt;
@@ -361,15 +425,25 @@ export class Fisher {
       this.hips.position.y = 0.53 / this.k;
       const lean = pose.mode === 'row' ? pose.rowLean ?? 0 : -0.1;
       this.hips.rotation.set(lean * 0.12, (pose.twist ?? 0) * 0.35, 0);
-      this.spine.rotation.set(lean * 0.34 - 0.05 + breathe, (pose.twist ?? 0) * 0.55, 0);
-      this.thigh[0].rotation.set(1.28, 0, -0.1);
-      this.thigh[1].rotation.set(1.28, 0, 0.1);
-      this.shin[0].rotation.set(-1.25, 0, 0);
-      this.shin[1].rotation.set(-1.25, 0, 0);
+      this.spine.rotation.set(lean * 0.34 - 0.05 + breathe + lounge * 0.5, (pose.twist ?? 0) * 0.55, 0);
+      // Leant back, the legs go out long across the boards.
+      this.thigh[0].rotation.set(1.28 + lounge * 0.2, 0, -0.1 - lounge * 0.06);
+      this.thigh[1].rotation.set(1.28 + lounge * 0.2, 0, 0.1 + lounge * 0.06);
+      this.shin[0].rotation.set(-1.25 + lounge * 0.75, 0, 0);
+      this.shin[1].rotation.set(-1.25 + lounge * 0.6, 0, 0);
+    } else if (pose.mode === 'groundSit') {
+      // Down on the grass or the sand, legs out long, crossed at the ankles once leant right back.
+      this.hips.position.y = 0.11 / this.k;
+      this.hips.rotation.set(0, 0, 0);
+      this.spine.rotation.set(0.1 + lounge * 0.38 + breathe, 0, 0);
+      this.thigh[0].rotation.set(1.5, 0, -0.1 + lounge * 0.12);
+      this.thigh[1].rotation.set(1.5 + lounge * 0.09, 0, 0.1 - lounge * 0.22);
+      this.shin[0].rotation.set(-0.05, 0, 0);
+      this.shin[1].rotation.set(-0.05 - lounge * 0.04, 0, 0);
     } else if (pose.mode === 'dockSit') {
       this.hips.position.y = 0.06 / this.k;
       this.hips.rotation.set(0, 0, 0);
-      this.spine.rotation.set(-0.12 + breathe, (pose.twist ?? 0) * 0.3, 0);
+      this.spine.rotation.set(-0.12 + breathe + lounge * 0.42, (pose.twist ?? 0) * 0.3, 0);
       const k = Math.sin(this.breath * 0.7);
       this.thigh[0].rotation.set(1.42, 0, -0.08);
       this.thigh[1].rotation.set(1.42, 0, 0.08);
@@ -378,7 +452,7 @@ export class Fisher {
     } else {
       this.hips.position.y = 0.48 / this.k;
       this.hips.rotation.set(0, 0, 0);
-      this.spine.rotation.set(0.16 + breathe, 0, 0);
+      this.spine.rotation.set(0.16 + breathe + lounge * 0.3, 0, 0);
       this.thigh[0].rotation.set(1.45, 0, -0.06);
       this.thigh[1].rotation.set(1.45, 0, 0.06);
       this.shin[0].rotation.set(-1.4, 0, 0);
@@ -388,6 +462,8 @@ export class Fisher {
     this.spine.rotation.x += (pose.beerLift ?? 0) * 0.07;
     // Sitting down, there's only leaning over to do.
     if (sitting) this.spine.rotation.x -= (pose.pat ?? 0) * 0.62;
+    // A long gun: side on to the shot, the left shoulder forward.
+    if (longGun) this.spine.rotation.y -= 0.55;
     this.root.updateMatrixWorld(true);
 
     // Arms and rod.
@@ -399,7 +475,21 @@ export class Fisher {
 
     this.gun.visible = !!pose.gun;
     this.rod.visible = !pose.gun;
-    if (pose.gun && pose.rodDir) {
+    if (pose.gun && pose.rodDir && longGun) {
+      // Butt in the pocket of the right shoulder, cheek down on the stock, the left hand out along the fore-end.
+      this.gunDirSmooth.lerp(pose.rodDir, 1 - Math.exp(-dt * 24)).normalize();
+      const aim = this.gunDirSmooth;
+      const kick = pose.recoil ?? 0;
+      const spec = GUNS[this.gunKind];
+      const up = new THREE.Vector3().copy(aim).addScaledVector(worldUp, kick * 0.22).normalize();
+      const grip = this.shoulderWorld(1, new THREE.Vector3()).addScaledVector(right, -0.06).addScaledVector(worldUp, 0.03).addScaledVector(up, 0.3 - kick * 0.08);
+      this.reach(1, grip.clone().addScaledVector(worldUp, -0.04), new THREE.Vector3().copy(right).multiplyScalar(0.7).addScaledVector(worldUp, -0.8));
+      const fore = grip.clone().addScaledVector(up, this.gunKind === 'rifle' ? 0.27 : 0.22).addScaledVector(worldUp, -0.03);
+      this.reach(0, fore, new THREE.Vector3().copy(right).multiplyScalar(-0.4).addScaledVector(worldUp, -0.9));
+      this.gun.position.copy(grip);
+      this.gun.quaternion.setFromUnitVectors(GUN_AXIS, up);
+      this.gunTip.copy(grip).addScaledVector(up, spec.length).addScaledVector(worldUp, spec.muzzleUp);
+    } else if (pose.gun && pose.rodDir) {
       // Held out in both hands, at the height of the eyes. It's heavy: the shot throws it well up and back.
       this.gunDirSmooth.lerp(pose.rodDir, 1 - Math.exp(-dt * 24)).normalize();
       const aim = this.gunDirSmooth;
@@ -442,6 +532,30 @@ export class Fisher {
       this.reach(1, base, new THREE.Vector3().copy(right).multiplyScalar(0.9).addScaledVector(worldUp, -0.5));
       this.reach(0, lHand, new THREE.Vector3().copy(right).multiplyScalar(-0.9).addScaledVector(worldUp, -0.5));
       this.updateRod(base, this.rodDirSmooth, this.rodBendSmooth);
+    } else if (lounge > 0.25) {
+      if (pose.mode === 'groundSit' || pose.mode === 'dockSit') {
+        // Leant back on both hands, palms flat behind.
+        const base = new THREE.Vector3().setFromMatrixPosition(this.hips.matrixWorld);
+        for (const i of [0, 1]) {
+          const side = i === 0 ? -1 : 1;
+          const at = base.clone().addScaledVector(fwd, -0.3).addScaledVector(right, side * 0.25);
+          at.y = worldPos.y + 0.03;
+          this.reach(i, at, new THREE.Vector3().copy(right).multiplyScalar(side * 0.4).addScaledVector(fwd, -1));
+        }
+      } else {
+        // Hands laced behind the head, elbows out.
+        const back = new THREE.Vector3().setFromMatrixPosition(this.head.matrixWorld).addScaledVector(fwd, -0.13).addScaledVector(worldUp, 0.07);
+        for (const i of [0, 1]) {
+          const side = i === 0 ? -1 : 1;
+          this.reach(i, back.clone().addScaledVector(right, side * 0.06), new THREE.Vector3().copy(right).multiplyScalar(side).addScaledVector(worldUp, 0.5).addScaledVector(fwd, 0.25));
+        }
+      }
+      // The rod lies down beside, or along the thwart in a boat.
+      const inBoat = pose.mode === 'boatSit' || pose.mode === 'row';
+      const base = inBoat ? new THREE.Vector3(0.48, 0.06, 0.2).applyMatrix4(this.root.matrixWorld) : new THREE.Vector3(0.42, pose.mode === 'groundSit' ? -0.06 : -0.5, 0.1).applyMatrix4(this.hips.matrixWorld);
+      const rodD = (inBoat ? new THREE.Vector3(-0.07, 0.03, 1) : new THREE.Vector3(0.1, pose.mode === 'groundSit' ? 0.02 : 0.14, -1)).applyQuaternion(rootQ).normalize();
+      this.rodDirSmooth.lerp(rodD, 1 - Math.exp(-dt * 8)).normalize();
+      this.updateRod(base, this.rodDirSmooth, 0.06);
     } else {
       // Walking: rod on the right shoulder, left arm swinging, the way anyone carries a rod.
       const swing = pose.mode === 'stand' ? Math.sin(ph) * 0.5 * walkAmt : 0;
@@ -522,6 +636,7 @@ export class Fisher {
 
     // Head: a slow look around.
     this.headLook = damp(this.headLook, Math.sin(t * 0.17) * 0.4 + Math.sin(t * 0.43) * 0.15, 1, dt);
-    this.head.rotation.set((sitting ? -0.05 : 0.04) + beerLift * 0.52, this.headLook * (walkAmt > 0.3 ? 0.35 : 1) * (1 - beerLift), 0);
+    const still = 1 - Math.min(1, lounge * 1.5);
+    this.head.rotation.set((sitting ? -0.05 : 0.04) + beerLift * 0.52 - lounge * 0.3, this.headLook * (walkAmt > 0.3 ? 0.35 : 1) * (1 - beerLift) * still + (longGun ? 0.55 : 0), 0);
   }
 }

@@ -5,9 +5,10 @@ import { Pet } from '../actors/pet';
 import { Fisher, PoseInput } from '../actors/fisher';
 import { CharacterLook } from '../actors/look';
 import { damp } from '../core/noise';
-import { fishModel } from '../game/fishart';
+import { fishModel, disposeFish } from '../game/fishart';
 import { neonOf, SPECIES } from '../game/fishdata';
-import { makeBobber } from '../game/fishing';
+import { makeBobber, setBobberStyle, setLineColour } from '../game/fishing';
+import type { GunKind } from '../game/guns';
 import { swellAt } from '../world/land';
 import type { Water } from '../world/water';
 import type { NetState } from './protocol';
@@ -51,7 +52,7 @@ export class RemotePlayer {
   private cheersK = 0;
   private tmp3 = new THREE.Vector3();
   private lastShots = -1;
-  onShot: ((at: THREE.Vector3) => void) | null = null;
+  onShot: ((at: THREE.Vector3, kind: GunKind) => void) | null = null;
   private lure = new THREE.Vector3();
 
   constructor(private scene: THREE.Scene, private late: THREE.Scene, lineMat: THREE.Material, look: CharacterLook, name: string, uiRoot: HTMLElement) {
@@ -72,7 +73,9 @@ export class RemotePlayer {
     scene.add(this.bobber);
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(this.linePos, 3));
-    this.line = new THREE.Line(g, lineMat);
+    this.line = new THREE.Line(g, lineMat.clone());
+    setBobberStyle(this.bobber, look.bobber);
+    setLineColour(this.line.material as THREE.Material, look.line);
     this.line.frustumCulled = false;
     this.line.visible = false;
     late.add(this.line);
@@ -90,6 +93,8 @@ export class RemotePlayer {
     this.fisher.applyLook(look);
     this.boat.applyLook(look);
     this.pet.applyLook(look);
+    setBobberStyle(this.bobber, look.bobber);
+    setLineColour(this.line.material as THREE.Material, look.line);
     if (!this.seen) this.pet.root.visible = false;
   }
 
@@ -158,7 +163,7 @@ export class RemotePlayer {
     if (s.shots !== this.lastShots) {
       this.lastShots = s.shots;
       this.recoil = 1;
-      this.onShot?.(this.fisher.gunTip);
+      this.onShot?.(this.fisher.gunTip, s.gk);
     }
     this.recoil = Math.max(0, this.recoil - dt * 6);
     this.patK = damp(this.patK, s.pat && this.pet.exists ? 1 : 0, 7, dt);
@@ -178,6 +183,8 @@ export class RemotePlayer {
       beerLift: s.bLift,
       air: s.air,
       gun: s.gun,
+      gunKind: s.gk,
+      lounge: s.lg,
       recoil: this.recoil,
       pat: this.patK,
       patAt: s.pat && this.pet.exists ? this.pet.headTop(this.tmp3) : undefined,
@@ -229,8 +236,10 @@ export class RemotePlayer {
     if (!wantFish) this.dropModel();
     if (this.model) {
       if (s.fs === 'reel') {
-        this.model.position.set(s.lx, -0.28, s.lz);
-        this.model.rotation.set(0, t * 0.8, Math.sin(t * 7) * 0.12, 'YXZ');
+        // A leap shows as height on the lure.
+        const up = Math.max(0, s.ly);
+        this.model.position.set(s.lx, -0.28 + (up > 0.02 ? up + 0.28 : 0), s.lz);
+        this.model.rotation.set(up > 0.02 ? 0.4 : 0, t * 0.8, Math.sin(t * (up > 0.02 ? 26 : 7)) * (up > 0.02 ? 0.35 : 0.12), 'YXZ');
       } else {
         this.model.position.set(s.lx, s.ly, s.lz);
         this.model.rotation.set(-Math.PI / 2 + Math.sin(t * 5.5) * 0.08, t * 0.6, 0, 'YXZ');
@@ -256,7 +265,7 @@ export class RemotePlayer {
 
   private dropModel() {
     if (this.model) {
-      this.scene.remove(this.model);
+      disposeFish(this.model);
       this.model = null;
     }
     this.modelId = '';

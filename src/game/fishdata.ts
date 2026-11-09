@@ -32,6 +32,12 @@ export interface Species {
   neon?: boolean; // this catch came up glowing
 }
 
+/** A fair weight for a fish of this kind and length, from how deep its body is. */
+export function weightKg(sp: Species, lengthM: number): number {
+  // Deep-bodied fish are also thin from side to side, so depth only counts in full up to a point.
+  return 148 * sp.depth * Math.min(sp.depth, 0.26) * lengthM * lengthM * lengthM;
+}
+
 const ANY: TimeWindow[] = [[0, 24]];
 const DAWN: TimeWindow = [4.9, 7.2];
 const MORNING: TimeWindow = [7, 10.5];

@@ -344,3 +344,14 @@ export function fishModel(sp: Species): THREE.Group {
   group.add(solid(b.build(), mat, false));
   return group;
 }
+
+/** Frees a fish model's geometry and material once it's out of the scene for good. */
+export function disposeFish(g: THREE.Object3D) {
+  g.parent?.remove(g);
+  g.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    m.geometry.dispose();
+    (m.material as THREE.Material).dispose();
+  });
+}
