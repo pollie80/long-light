@@ -223,7 +223,7 @@ check('the pet follows along the jetty', gap < 3, `${gap.toFixed(1)} m behind`);
 await shot('pet-jetty');
 const petY = await page.evaluate(() => __ll.game.pet.worldPos().y);
 check('and stands on the deck', petY > 1.3 && petY < 2.2, String(petY));
-for (const kind of ['cat', 'parrot', 'duck', 'capybara', 'turtle', 'dragon', 'rock', 'dog']) {
+for (const kind of ['cat', 'parrot', 'duck', 'capybara', 'turtle', 'dragon', 'rock', 'dachshund', 'frenchie', 'beagle', 'labrador', 'shepherd']) {
   await page.evaluate((v) => __ll.game.ui.wardrobe.hooks.set({ ...__ll.game.fisher.look, pet: v }), kind);
   await wait(250);
   check(`${kind} builds`, await page.evaluate(() => __ll.game.pet.exists));

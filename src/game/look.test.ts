@@ -62,3 +62,13 @@ describe('the magic', () => {
     expect(nightMagic(7)).toBe(0);
   });
 });
+
+describe('the dogs', () => {
+  it('offers five breeds, and an old save with the one dog gets the Labrador', () => {
+    const pets = PICKS.find((r) => r.key === 'pet')!.choices.map((c) => c.id);
+    for (const b of ['dachshund', 'frenchie', 'beagle', 'labrador', 'shepherd']) expect(pets).toContain(b);
+    expect(pets).not.toContain('dog');
+    expect(cleanLook({ pet: 'dog' }).pet).toBe('labrador');
+    expect(DEFAULT_LOOK.pet).toBe('labrador');
+  });
+});

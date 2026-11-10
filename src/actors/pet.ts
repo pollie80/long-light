@@ -24,7 +24,9 @@ export interface PetOwner {
 
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 const FLYERS = new Set(['parrot', 'dragon']);
-const NAMES: Record<string, string> = { dog: 'dog', cat: 'cat', parrot: 'parrot', duck: 'duck', capybara: 'capybara', turtle: 'turtle', dragon: 'dragon', rock: 'rock', potato: 'potato', toast: 'toast', shark: 'shark' };
+/** The five breeds, smallest to largest. All of them answer to "dog". */
+export const BREEDS = ['dachshund', 'frenchie', 'beagle', 'labrador', 'shepherd'];
+const NAMES: Record<string, string> = { dog: 'dog', dachshund: 'dog', frenchie: 'dog', beagle: 'dog', labrador: 'dog', shepherd: 'dog', cat: 'cat', parrot: 'parrot', duck: 'duck', capybara: 'capybara', turtle: 'turtle', dragon: 'dragon', rock: 'rock', potato: 'potato', toast: 'toast', shark: 'shark' };
 
 interface Parts {
   body: THREE.BufferGeometry;
@@ -42,12 +44,116 @@ interface Parts {
   sit: number;
   /** How fast it can move, in metres a second, before it gives up and catches you up by magic. */
   gait: 'trot' | 'waddle' | 'plod' | 'hop' | 'fly';
+  /** Leg length against a middling dog's: short legs step quicker to keep up. */
+  stride?: number;
 }
 
 function eyes(b: Builder, x: number, y: number, z: number, r = 0.022) {
   for (const s of [-1, 1]) {
     b.sphere(r, 0x15110f, TRS(s * x, y, z), {}, 8, 6);
     b.sphere(r * 0.35, 0xffffff, TRS(s * x + r * 0.3, y + r * 0.4, z - r * 0.8), { emis: 0.2 }, 6, 4);
+  }
+}
+
+const BLACK = 0x1d1917;
+const CREAM = 0xf2ece0;
+
+/** A neck from the shoulders up to where the head sits. */
+function neck(b: Builder, from: [number, number, number], to: [number, number, number], r0: number, r1: number, col: THREE.Color | number) {
+  const dy = to[1] - from[1];
+  const dz = to[2] - from[2];
+  const len = Math.hypot(dy, dz);
+  b.cyl(r1, r0, len, col, TRS(0, (from[1] + to[1]) / 2, (from[2] + to[2]) / 2, Math.atan2(dz, dy), 0, 0), {}, 8);
+}
+
+/** Five breeds at their real sizes, so a dachshund comes to your ankle and a shepherd to your knee. */
+function dog(kind: string, c: THREE.Color, dark: THREE.Color, light: THREE.Color, B: () => Builder): Parts {
+  switch (kind) {
+    case 'dachshund': {
+      // Long and low, with ears to match. About 22 cm at the shoulder.
+      const body = B().sphere(0.085, c, TRS(0, 0, 0, 0, 0, 0, 0.95, 0.95, 3.1), { jit: 0.04 });
+      body.sphere(0.07, c, TRS(0, -0.03, -0.17, 0, 0, 0, 0.9, 1, 1.3), {}, 10, 8);
+      neck(body, [0, 0.04, -0.22], [0, 0.1, -0.31], 0.055, 0.045, c);
+      const head = B().sphere(0.07, c, TRS(0, 0, 0), {});
+      head.box(0.05, 0.045, 0.11, c, TRS(0, -0.02, -0.08), {}, 0.02);
+      head.sphere(0.016, BLACK, TRS(0, -0.008, -0.14), {}, 8, 6);
+      for (const s of [-1, 1]) head.sphere(0.045, dark, TRS(s * 0.065, -0.03, 0.01, 0, 0, s * 0.15, 0.3, 1.6, 0.85), {}, 8, 6);
+      eyes(head, 0.035, 0.022, -0.055, 0.014);
+      const tail = B().tube([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0.03, 0.1), new THREE.Vector3(0, 0.06, 0.2)], 0.017, c, {}, 10, 6);
+      const leg = B().cyl(0.025, 0.022, 0.075, c, TRS(0, -0.037, 0), {}, 7);
+      leg.sphere(0.026, c, TRS(0, -0.075, -0.008, 0, 0, 0, 1, 0.6, 1.3), {}, 8, 6);
+      return { body: body.build(), head: head.build(), headAt: [0, 0.11, -0.34], tail: tail.build(), tailAt: [0, 0.03, 0.25], leg: leg.build(), legsAt: [[-0.05, -0.045, -0.19], [0.05, -0.045, -0.19], [-0.05, -0.045, 0.19], [0.05, -0.045, 0.19]], stand: 0.115, sit: 0.1, gait: 'trot', stride: 0.45 };
+    }
+    case 'frenchie': {
+      // Stocky, flat-faced, with bat ears and a dark mask. About 30 cm.
+      const body = B().sphere(0.14, c, TRS(0, 0, 0, 0, 0, 0, 1.0, 0.95, 1.3), { jit: 0.04 });
+      body.sphere(0.12, c, TRS(0, -0.01, -0.1, 0, 0, 0, 1.05, 1, 1), {}, 12, 8);
+      const head = B().sphere(0.1, c, TRS(0, 0, 0, 0, 0, 0, 1.1, 0.95, 0.95), {});
+      head.sphere(0.065, dark, TRS(0, -0.02, -0.065, 0, 0, 0, 1.25, 0.85, 0.6), {}, 10, 8);
+      head.box(0.085, 0.05, 0.04, dark, TRS(0, -0.035, -0.095), {}, 0.018);
+      head.sphere(0.02, BLACK, TRS(0, -0.012, -0.118), {}, 8, 6);
+      for (const s of [-1, 1]) {
+        head.add(new THREE.ConeGeometry(0.042, 0.1, 10), c, TRS(s * 0.068, 0.1, 0.005, 0, 0, -s * 0.32, 1.25, 1, 0.5));
+        head.add(new THREE.ConeGeometry(0.028, 0.07, 8), 0xc98a86, TRS(s * 0.066, 0.096, -0.012, 0, 0, -s * 0.32, 1.2, 1, 0.3));
+      }
+      eyes(head, 0.05, 0.02, -0.08, 0.02);
+      const tail = B().sphere(0.026, c, TRS(0, 0, 0), {}, 8, 6);
+      const leg = B().cyl(0.034, 0.03, 0.12, c, TRS(0, -0.06, 0), {}, 7);
+      leg.sphere(0.033, c, TRS(0, -0.118, -0.01, 0, 0, 0, 1, 0.6, 1.3), {}, 8, 6);
+      return { body: body.build(), head: head.build(), headAt: [0, 0.11, -0.23], tail: tail.build(), tailAt: [0, 0.04, 0.18], leg: leg.build(), legsAt: [[-0.085, -0.06, -0.12], [0.085, -0.06, -0.12], [-0.085, -0.06, 0.12], [0.085, -0.06, 0.12]], stand: 0.175, sit: 0.15, gait: 'trot', stride: 0.5 };
+    }
+    case 'beagle': {
+      // Tricolour: the coat colour on the head and sides, a black saddle, white legs, chest and tail tip. About 37 cm.
+      const body = B().sphere(0.135, c, TRS(0, 0, 0, 0, 0, 0, 0.9, 0.92, 1.7), { jit: 0.04 });
+      body.sphere(0.128, BLACK, TRS(0, 0.04, 0.02, 0, 0, 0, 0.86, 0.7, 1.45), {}, 12, 8);
+      body.sphere(0.1, CREAM, TRS(0, -0.04, -0.13, 0, 0, 0, 0.85, 0.95, 1.05), {}, 10, 8);
+      body.sphere(0.11, CREAM, TRS(0, -0.06, 0.02, 0, 0, 0, 0.8, 0.6, 1.4), {}, 10, 8);
+      neck(body, [0, 0.06, -0.18], [0, 0.13, -0.25], 0.07, 0.055, c);
+      const head = B().sphere(0.085, c, TRS(0, 0, 0), {});
+      head.box(0.065, 0.06, 0.09, CREAM, TRS(0, -0.025, -0.085), {}, 0.025);
+      head.box(0.024, 0.07, 0.03, CREAM, TRS(0, 0.035, -0.07, -0.4, 0, 0), {}, 0.01);
+      head.sphere(0.018, BLACK, TRS(0, -0.008, -0.135), {}, 8, 6);
+      for (const s of [-1, 1]) head.sphere(0.05, dark, TRS(s * 0.08, -0.035, 0.01, 0, 0, s * 0.15, 0.3, 1.7, 0.8), {}, 8, 6);
+      eyes(head, 0.04, 0.025, -0.07, 0.016);
+      const tail = B().tube([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0.08, 0.03), new THREE.Vector3(0, 0.16, 0.02)], 0.019, c, {}, 10, 6);
+      tail.sphere(0.024, CREAM, TRS(0, 0.17, 0.02), {}, 8, 6);
+      const leg = B().cyl(0.028, 0.024, 0.17, CREAM, TRS(0, -0.085, 0), {}, 7);
+      leg.sphere(0.028, CREAM, TRS(0, -0.168, -0.01, 0, 0, 0, 1, 0.6, 1.3), {}, 8, 6);
+      return { body: body.build(), head: head.build(), headAt: [0, 0.16, -0.28], tail: tail.build(), tailAt: [0, 0.07, 0.21], leg: leg.build(), legsAt: [[-0.065, -0.06, -0.15], [0.065, -0.06, -0.15], [-0.065, -0.06, 0.15], [0.065, -0.06, 0.15]], stand: 0.225, sit: 0.19, gait: 'trot', stride: 0.68 };
+    }
+    case 'shepherd': {
+      // Long, sloping and alert: prick ears, a black saddle and muzzle, a low brush of a tail. About 62 cm.
+      const body = B().sphere(0.2, c, TRS(0, 0, 0, 0.07, 0, 0, 0.82, 0.86, 1.95), { jit: 0.04 });
+      body.sphere(0.19, BLACK, TRS(0, 0.05, 0.04, 0.07, 0, 0, 0.8, 0.72, 1.6), {}, 14, 10);
+      body.sphere(0.12, c, TRS(0, -0.03, -0.24, 0, 0, 0, 0.95, 1.05, 1.05), {}, 10, 8);
+      neck(body, [0, 0.1, -0.3], [0, 0.24, -0.44], 0.11, 0.085, c);
+      const head = B().sphere(0.115, c, TRS(0, 0, 0, 0, 0, 0, 0.95, 0.95, 1.05), {});
+      head.box(0.085, 0.075, 0.18, BLACK, TRS(0, -0.035, -0.15), {}, 0.03);
+      head.sphere(0.024, BLACK, TRS(0, -0.012, -0.245), {}, 8, 6);
+      for (const s of [-1, 1]) head.add(new THREE.ConeGeometry(0.048, 0.14, 6), dark, TRS(s * 0.062, 0.13, 0.015, 0, 0, -s * 0.16, 1, 1, 0.55));
+      eyes(head, 0.05, 0.04, -0.085, 0.018);
+      const tail = B().tube([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, -0.08, 0.1), new THREE.Vector3(0, -0.2, 0.15), new THREE.Vector3(0, -0.27, 0.24)], 0.042, c, {}, 12, 7);
+      tail.sphere(0.045, BLACK, TRS(0, -0.27, 0.24), {}, 8, 6);
+      const leg = B().cyl(0.044, 0.034, 0.38, c, TRS(0, -0.19, 0), {}, 7);
+      leg.sphere(0.04, c, TRS(0, -0.378, -0.012, 0, 0, 0, 1, 0.6, 1.3), {}, 8, 6);
+      return { body: body.build(), head: head.build(), headAt: [0, 0.26, -0.47], tail: tail.build(), tailAt: [0, 0.03, 0.37], leg: leg.build(), legsAt: [[-0.095, -0.08, -0.27], [0.095, -0.08, -0.27], [-0.095, -0.08, 0.27], [0.095, -0.08, 0.27]], stand: 0.45, sit: 0.36, gait: 'trot', stride: 1.5 };
+    }
+    default: {
+      // A Labrador: broad head, soft ears, thick otter tail. About 57 cm.
+      const body = B().sphere(0.2, c, TRS(0, 0, 0, 0, 0, 0, 0.86, 0.88, 1.72), { jit: 0.04 });
+      body.sphere(0.12, c, TRS(0, -0.04, -0.2, 0, 0, 0, 0.95, 1, 1.05), {}, 10, 8);
+      body.sphere(0.1, light, TRS(0, -0.07, -0.22, 0, 0, 0, 0.8, 0.8, 0.9), {}, 10, 8);
+      neck(body, [0, 0.09, -0.27], [0, 0.2, -0.38], 0.1, 0.085, c);
+      const head = B().sphere(0.12, c, TRS(0, 0, 0, 0, 0, 0, 1, 0.95, 1.05), {});
+      head.box(0.1, 0.09, 0.15, c, TRS(0, -0.035, -0.13), {}, 0.035);
+      head.sphere(0.026, BLACK, TRS(0, -0.01, -0.21), {}, 8, 6);
+      for (const s of [-1, 1]) head.sphere(0.06, c.clone().multiplyScalar(0.85), TRS(s * 0.11, -0.01, 0.02, 0, 0, s * 0.2, 0.38, 1.35, 0.85), {}, 8, 6);
+      eyes(head, 0.055, 0.035, -0.095, 0.02);
+      const tail = B().tube([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0.02, 0.12), new THREE.Vector3(0, -0.03, 0.24), new THREE.Vector3(0, -0.1, 0.33)], 0.032, c, {}, 12, 7);
+      const leg = B().cyl(0.042, 0.034, 0.36, c, TRS(0, -0.18, 0), {}, 7);
+      leg.sphere(0.04, c, TRS(0, -0.358, -0.012, 0, 0, 0, 1, 0.6, 1.3), {}, 8, 6);
+      return { body: body.build(), head: head.build(), headAt: [0, 0.22, -0.4], tail: tail.build(), tailAt: [0, 0.06, 0.33], leg: leg.build(), legsAt: [[-0.1, -0.08, -0.22], [0.1, -0.08, -0.22], [-0.1, -0.08, 0.22], [0.1, -0.08, 0.22]], stand: 0.43, sit: 0.34, gait: 'trot', stride: 1.44 };
+    }
   }
 }
 
@@ -163,19 +269,8 @@ function build(kind: string, col: number): Parts {
       }
       return { body: body.build(), head: head.build(), headAt: [0, 0.05, -0.135], stand: 0.11, sit: 0.11, gait: 'hop' };
     }
-    default: {
-      // A dog.
-      const body = B().sphere(0.15, c, TRS(0, 0, 0, 0, 0, 0, 0.88, 0.9, 1.7), { jit: 0.05 });
-      body.sphere(0.09, light, TRS(0, -0.05, -0.15, 0, 0, 0, 0.9, 1, 1.1), {}, 10, 8);
-      const head = B().sphere(0.105, c, TRS(0, 0, 0), {});
-      head.box(0.09, 0.075, 0.13, light, TRS(0, -0.025, -0.11), {}, 0.03);
-      head.sphere(0.022, 0x17120f, TRS(0, -0.005, -0.18), {}, 8, 6);
-      for (const s of [-1, 1]) head.sphere(0.05, dark, TRS(s * 0.095, 0.015, 0.01, 0, 0, 0, 0.42, 1.25, 0.82), {}, 8, 6);
-      eyes(head, 0.048, 0.03, -0.085);
-      const tail = B().tube([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0.08, 0.07), new THREE.Vector3(0, 0.17, 0.09)], 0.027, c, {}, 10, 6);
-      const leg = B().cyl(0.031, 0.026, 0.25, c, TRS(0, -0.125, 0), {}, 7);
-      return { body: body.build(), head: head.build(), headAt: [0, 0.12, -0.27], tail: tail.build(), tailAt: [0, 0.04, 0.24], leg: leg.build(), legsAt: [[-0.075, -0.07, -0.16], [0.075, -0.07, -0.16], [-0.075, -0.07, 0.16], [0.075, -0.07, 0.16]], stand: 0.31, sit: 0.24, gait: 'trot' };
-    }
+    default:
+      return dog(kind, c, dark, light, B);
   }
 }
 
@@ -486,7 +581,7 @@ export class Pet {
         this.hopV = this.happy > 0.4 ? 1.8 : 0;
       }
     }
-    this.phase += dt * (3 + Math.min(this.speed, 8) * (p.gait === 'waddle' ? 5.2 : p.gait === 'plod' ? 3.2 : 3.6));
+    this.phase += dt * (3 + Math.min(this.speed, 8) * (p.gait === 'waddle' ? 5.2 : p.gait === 'plod' ? 3.2 : 3.6) / Math.max(0.45, p.stride ?? 1));
     const ph = this.phase;
     const walk = clamp(this.speed / 1.4, 0, 1) * (1 - this.sitK);
     const n = this.legs.length;

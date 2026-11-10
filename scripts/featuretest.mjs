@@ -568,6 +568,116 @@ await wait(300);
 await pickMode('relaxed');
 check('back to Relaxed: the rules are as they were', await g(() => __ll.game.save.difficulty === 'relaxed' && __ll.game.fishing.rules.biteWindow === 9 && __ll.game.hunt.speedK === 1));
 
+// ---- Five dogs, five sizes ------------------------------------------------------------------------
+await g(() => { __ll.place(-14, 0, 1.57); __ll.game.cam.yaw = -1.2; __ll.game.cam.pitch = 0.08; __ll.setHour(11); });
+await g(() => __ll.game.ui.wardrobe.hooks.set({ ...__ll.game.fisher.look, pet: 'labrador', petColor: 'golden', petSize: 1 }));
+await wait(800);
+await g(() => __ll.game.openMenu());
+await wait(400);
+await page.locator('#mPet').click();
+await wait(900);
+// Standing, from paws to ears: the legs and body put straight for a moment, and only the dog itself
+// measured (not the hearts from being patted, which hide at the root).
+const measureDog = () => g(() => {
+  const P = __ll.game.pet;
+  const keep = { legs: P.legs.map((l) => l.rotation.x), rx: P.rig.rotation.x, rz: P.rig.rotation.z, ry: P.root.rotation.y, hx: P.head?.rotation.x ?? 0 };
+  P.legs.forEach((l) => (l.rotation.x = 0));
+  P.rig.rotation.x = 0; P.rig.rotation.z = 0; P.root.rotation.y = 0;
+  if (P.head) P.head.rotation.x = 0;
+  P.root.updateMatrixWorld(true);
+  const box = new __ll.THREE.Box3().setFromObject(P.rig);
+  P.legs.forEach((l, i) => (l.rotation.x = keep.legs[i]));
+  P.rig.rotation.x = keep.rx; P.rig.rotation.z = keep.rz; P.root.rotation.y = keep.ry;
+  if (P.head) P.head.rotation.x = keep.hx;
+  return { h: +(box.max.y - box.min.y).toFixed(3), len: +(box.max.z - box.min.z).toFixed(3), name: P.name, exists: P.exists, pet: __ll.game.fisher.look.pet };
+});
+const dogs = {};
+const labels = [];
+for (let i = 0; i < 5; i++) {
+  if (i) {
+    await page.locator('#wardrobe .wRow[data-pick="pet"] .pick button').last().click();
+    await wait(900);
+  }
+  labels.push(await page.locator('#wardrobe .wRow[data-pick="pet"] .pick span').textContent());
+  const d = await measureDog();
+  dogs[d.pet] = d;
+  await shot(`d-${d.pet}`);
+}
+await page.locator('#wFoot button[data-w="done"]').click();
+await wait(300);
+const BREEDS = ['dachshund', 'frenchie', 'beagle', 'labrador', 'shepherd'];
+const heights = BREEDS.map((b) => dogs[b] ?? { h: 0, len: 0, exists: false });
+const ordered = heights.every((h, i) => i === 0 || h.h > heights[i - 1].h - 0.02);
+check('five breeds, from a dachshund to a German shepherd, each a different size', heights.every((h) => h.exists && h.name === 'dog') && ordered && heights[4].h > heights[0].h * 2, heights.map((h, i) => `${BREEDS[i]} ${Math.round(h.h * 100)} cm tall, ${Math.round(h.len * 100)} long`).join('; '));
+check('the dachshund is long for its height', heights[0].len > heights[0].h * 1.6, JSON.stringify(heights[0]));
+check('the pet panel steps through all five', ['Labrador', 'German shepherd', 'beagle', 'French bulldog', 'dachshund'].every((n) => labels.includes(n)), labels.join(', '));
+await g((v) => __ll.game.ui.wardrobe.hooks.set({ ...__ll.game.fisher.look, pet: 'labrador' }));
+await g(() => __ll.game.closeMenus());
+await wait(400);
+
+// ---- Straight from where you start, down to the jetty ----------------------------------------------
+await g(() => {
+  const a = Math.atan2(-(26 - 104.8), -(0 - -17));
+  __ll.place(104.8, -17, a);
+  __ll.game.cam.yaw = a;
+  __ll.game.cam.pitch = 0.1;
+});
+await wait(600);
+await page.keyboard.down('KeyW');
+await wait(7000);
+await page.keyboard.up('KeyW');
+const downhill = await g(() => ({ x: +__ll.game.px.toFixed(1), z: +__ll.game.pz.toFixed(1), y: +__ll.game.py.toFixed(1) }));
+check('walking straight from the start towards the jetty, the bank down the hill lets you through', downhill.x < 84, JSON.stringify(downhill));
+await shot('w-down-the-bank');
+// Climbing it head on is still too steep.
+await g(() => {
+  const a = Math.atan2(-(104.8 - 86), -(-17 - -13));
+  __ll.place(86, -13, a);
+  __ll.game.cam.yaw = a;
+});
+await wait(500);
+await page.keyboard.down('KeyW');
+await wait(3500);
+await page.keyboard.up('KeyW');
+const uphill = await g(() => +__ll.game.px.toFixed(1));
+check('but it is still too steep to climb straight up', uphill < 91.5, `${uphill}`);
+
+// ---- The Progress page --------------------------------------------------------------------------
+await g(() => __ll.game.openMenu());
+await wait(400);
+const tiles = await g(() => {
+  const r = (id) => document.getElementById(id).getBoundingClientRect();
+  return { resumeW: Math.round(r('mResume').width), journalW: Math.round(r('mJournal').width), progress: !!document.getElementById('mProgress') };
+});
+check('the menu has a Progress tile, with Resume leading at double width', tiles.progress && tiles.resumeW > tiles.journalW * 1.8, JSON.stringify(tiles));
+await shot('p0-menu');
+await page.locator('#mProgress').click();
+await wait(600);
+const prog = await g(() => {
+  const total = Object.values(__ll.game.save.journal).reduce((t, e) => t + e.count, 0);
+  const feats = [...document.querySelectorAll('.prFeat')].map((f) => f.textContent);
+  const page = document.getElementById('progress');
+  const box = page.getBoundingClientRect();
+  return {
+    open: __ll.game.ui.progressOpen && !page.classList.contains('hidden'),
+    places: document.querySelectorAll('.prPlace').length,
+    tiers: document.querySelectorAll('.prTier').length,
+    pct: document.getElementById('prPct').textContent,
+    caught: feats.find((f) => f.startsWith('Fish caught')),
+    total,
+    fits: box.bottom <= innerHeight + 1 && page.scrollHeight <= page.clientHeight + 1,
+  };
+});
+check('Progress shows each place, each rarity and the records', prog.open && prog.places === 3 && prog.tiers === 5 && /%$/.test(prog.pct), JSON.stringify(prog));
+check('and the records match the journal', !!prog.caught && prog.caught.includes(String(prog.total)), `${prog.caught} vs ${prog.total}`);
+check('and it all fits without scrolling', prog.fits);
+await shot('p1-progress');
+await page.locator('#prBack').click();
+await wait(400);
+check('Back goes back to the menu', await g(() => !__ll.game.ui.progressOpen && __ll.game.ui.menuOpen));
+await g(() => __ll.game.closeMenus());
+await wait(300);
+
 check('no errors in the page', errors.length === 0, errors.slice(0, 3).join(' | '));
 console.log(results.join('\n'));
 console.log(`${results.filter((r) => r.startsWith('PASS')).length}/${results.length} passed`);

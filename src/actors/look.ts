@@ -216,7 +216,8 @@ export const PICKS: PickRow[] = [
   ] },
   // The pet.
   { key: 'pet', label: 'companion', group: 'Pet', choices: [
-    p('dog', 'dog'), p('cat', 'cat'), p('parrot', 'parrot'), p('duck', 'duck'), p('capybara', 'capybara'), p('turtle', 'turtle'),
+    p('labrador', 'Labrador'), p('shepherd', 'German shepherd'), p('beagle', 'beagle'), p('frenchie', 'French bulldog'), p('dachshund', 'dachshund'),
+    p('cat', 'cat'), p('parrot', 'parrot'), p('duck', 'duck'), p('capybara', 'capybara'), p('turtle', 'turtle'),
     p('dragon', 'tiny dragon', true), p('rock', 'pet rock', true), p('potato', 'emotional support potato', true), p('toast', 'a slice of toast', true), p('shark', 'land shark', true), p('none', 'no pet'),
   ] },
   { key: 'petColor', label: 'colour', group: 'Pet', colours: true, choices: [
@@ -250,7 +251,7 @@ export const DEFAULT_LOOK: CharacterLook = {
   facialHair: 'short', hairStyle: 'short', hairColor: 'grey', hat: 'straw', hatColor: 'straw', outfit: 'coat', coatColor: 'mustard', trouserColor: 'navy',
   shoes: 'boots', shoeColor: 'oxblood', neck: 'scarf', neckColor: 'red', back: 'creel', height: 1, build: 1, head: 1,
   boatStyle: 'dinghy', boatHull: 'teal', boatTrim: 'cream', boatStripe: 'red', boatOars: 'cream', boatLantern: 'warm', boatFigure: 'none', boatFlag: 'none', boatSail: 'none',
-  pet: 'dog', petColor: 'golden', petSize: 1,
+  pet: 'labrador', petColor: 'golden', petSize: 1,
   rod: 'cane', bobber: 'classic', line: 'clear', gunFinish: 'steel',
 };
 
@@ -258,6 +259,8 @@ export const DEFAULT_LOOK: CharacterLook = {
 export function cleanLook(saved: Partial<CharacterLook> | undefined): CharacterLook {
   const out: CharacterLook = { ...DEFAULT_LOOK };
   if (!saved) return out;
+  // The one dog there used to be was a Labrador in all but name.
+  if (saved.pet === 'dog') saved = { ...saved, pet: 'labrador' };
   for (const row of PICKS) {
     const v = saved[row.key];
     if (typeof v === 'string' && row.choices.some((x) => x.id === v)) out[row.key] = v;

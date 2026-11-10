@@ -2,6 +2,7 @@
 import { isDifficulty, RULES } from './difficulty';
 import { setQuality } from '../core/quality';
 import { SPECIES, TIER_LABEL } from './fishdata';
+import { progressOf } from './progress';
 import type { Game } from './game';
 import type { MenuHooks } from '../ui/ui';
 import type { WardrobeHooks } from '../ui/wardrobe';
@@ -111,6 +112,20 @@ export function menuHooks(g: Game): MenuHooks {
       g.placeArmed = null;
       g.ui.showPlaces(true, g.net.role === 'guest' ? 'Your friend picks the place while you are in their cove.' : '');
       g.audio.pageTurn();
+    },
+    progress: () => {
+      g.ui.showMenu(false);
+      g.ui.showTitle(false);
+      g.input.unlock();
+      g.ui.prompt(null);
+      g.ui.showProgress(true, progressOf(g.save.journal, g.save.birdLog, g.save.bestShot));
+      g.audio.pageTurn();
+    },
+    closeProgress: () => {
+      g.ui.showProgress(false);
+      g.audio.uiTick();
+      if (g.mode === 'title') g.ui.showTitle(true);
+      else g.ui.showMenu(true);
     },
     closePlaces: () => {
       g.ui.showPlaces(false);

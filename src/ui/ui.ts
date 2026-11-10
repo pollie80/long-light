@@ -7,6 +7,7 @@ import { BirdEntry, BirdKind, birdsOf, neonBird } from '../game/birddata';
 import { paintBird } from '../game/birdart';
 import { BOAT_PANEL, LOOK_PANEL, PET_PANEL, Wardrobe, WardrobeHooks, WardrobePanel } from './wardrobe';
 import { ICON } from './icons';
+import type { ProgressView } from '../game/progress';
 import { Difficulty, DIFFICULTY_ORDER, RULES, SWEET_HALF } from '../game/difficulty';
 import { MAP, MAP_ORDER, MapId, MAPS } from '../world/maps';
 import { Q, QUALITIES, QUALITY_ORDER, QualityId } from '../core/quality';
@@ -65,6 +66,9 @@ export interface MenuHooks {
   wardrobe(kind: 'self' | 'boat' | 'pet'): void;
   friends(): void;
   places(): void;
+  /** The Progress page, and back from it. */
+  progress(): void;
+  closeProgress(): void;
   closePlaces(): void;
   choosePlace(id: MapId): void;
   setQuality(id: QualityId): void;
@@ -126,6 +130,7 @@ export class UI {
   restOpen = false;
   friendsOpen = false;
   placesOpen = false;
+  progressOpen = false;
   /** The invite panel on the title screen for someone who followed a link. */
   joining = false;
   private focusI = 0;
@@ -208,6 +213,12 @@ export class UI {
       <div id="scope" class="gone"></div>
       <div id="energy" class="gone"><span class="eIc">${ICON.boat}</span><div class="eBar"><i></i></div><b id="eNote"></b></div>
       <div id="sights" class="gone"><i></i><div id="rounds"></div><div id="gunName"></div></div>
+      <div id="progress" class="paper hidden">
+        <header><h2>${ICON.flag} Progress</h2><div id="prAll"><b id="prPct"></b><span id="prAllNote"></span></div></header>
+        <div id="prPlaces"></div>
+        <div id="prLower"><section><h4>By rarity</h4><div id="prTiers"></div></section><section><h4>Records</h4><div id="prFeats"></div></section></div>
+        <div class="friendsFoot"><button class="iconBtn" id="prBack">${ICON.back}<span>Back</span></button></div>
+      </div>
       <div id="places" class="paper hidden">
         <h2>${ICON.map} Choose a place</h2>
         <div class="placeCards">
@@ -244,6 +255,7 @@ export class UI {
           <button class="tile" id="mJournal">${ICON.book}<span>Journal</span><kbd class="tkey">J</kbd></button>
           <button class="tile" id="mInvite">${ICON.people}<span>Friends</span><i id="mCount" class="gone"></i><kbd class="tkey">F</kbd></button>
           <button class="tile" id="mPlace">${ICON.map}<span>Place</span><kbd class="tkey">M</kbd></button>
+          <button class="tile" id="mProgress">${ICON.flag}<span>Progress</span></button>
           <button class="tile" id="mLook">${ICON.hat}<span>Your look</span></button>
           <button class="tile" id="mBoat">${ICON.boat}<span>Your boat</span></button>
           <button class="tile" id="mPet">${ICON.paw}<span>Your pet</span></button>
@@ -331,6 +343,8 @@ export class UI {
     el('mHelp').onclick = () => section(el('mKeys').classList.contains('gone') ? 'mKeys' : 'mSettings');
     el('mGfx').onclick = () => section(el('mGraphics').classList.contains('gone') ? 'mGraphics' : 'mSettings');
     el('mPlace').onclick = () => h.places();
+    el('mProgress').onclick = () => h.progress();
+    el('prBack').onclick = () => h.closeProgress();
     el('tPlace').onclick = () => h.places();
     el('pBack').onclick = () => h.closePlaces();
     el('places').querySelectorAll<HTMLButtonElement>('.placeCard').forEach((b) => {
@@ -778,7 +792,7 @@ export class UI {
   }
 
   private updateVeil() {
-    el('veil').classList.toggle('hidden', !(this.journalOpen || this.menuOpen || this.restOpen || this.friendsOpen || this.placesOpen));
+    el('veil').classList.toggle('hidden', !(this.journalOpen || this.menuOpen || this.restOpen || this.friendsOpen || this.placesOpen || this.progressOpen));
   }
 
   setWardrobe(v: boolean, kind: 'self' | 'boat' | 'pet' = 'self') {
@@ -828,6 +842,24 @@ export class UI {
     el('pNote').textContent = note;
     el('places').classList.toggle('hidden', !v);
     this.updateVeil();
+  }
+
+  /** The Progress page: how much of each place you have found, by rarity, and your records. */
+  showProgress(v: boolean, view: ProgressView | null = null) {
+    this.progressOpen = v;
+    el('progress').classList.toggle('hidden', !v);
+    this.updateVeil();
+    if (!v || !view) return;
+    const meter = (icon: string, label: string, c: { got: number; of: number }, cls = '') =>
+      `<div class="prRow ${cls}${c.of && c.got === c.of ? ' full' : ''}">${icon}<span>${label}</span><div class="prBar"><i style="width:${c.of ? ((c.got / c.of) * 100).toFixed(1) : 0}%"></i></div><b>${c.got}<small>/${c.of}</small></b></div>`;
+    const pct = view.all.of ? Math.floor((view.all.got / view.all.of) * 100) : 0;
+    el('prPct').textContent = `${pct}%`;
+    el('prAllNote').textContent = `${view.all.got} of ${view.all.of} kinds found`;
+    el('prPlaces').innerHTML = view.places.map((p) => `<div class="prPlace${p.id === MAP.id ? ' here' : ''}"><img src="${PLACE_IMG[p.id]}" alt=""><b>${p.name}</b>${
+      meter(ICON.fish, 'Fish', p.fish)}${meter(ICON.bird, 'Birds', p.birds)}${meter(ICON.sparkle, 'Glowing', p.neon, 'neon')}<i>${p.id === MAP.id ? 'You are here' : ''}</i></div>`).join('');
+    el('prTiers').innerHTML = view.tiers.map((t) => `<div class="prTier tier-${t.tier}"><span class="jstars">${tierStars(t.tier)}</span><em>${t.label}</em>${
+      meter(ICON.fish, '', t.fish, 'mini')}${meter(ICON.bird, '', t.birds, 'mini')}</div>`).join('');
+    el('prFeats').innerHTML = view.feats.map((f) => `<div class="prFeat"><span>${f.label}</span><b>${f.value}</b><em>${f.note}</em></div>`).join('');
   }
 
   placeNote(text: string) {
@@ -994,7 +1026,7 @@ export class UI {
     const left = edge(14);
     const right = edge(15);
     const ok = edge(0);
-    const container = this.restOpen ? el('rest') : this.menuOpen ? el('menu') : null;
+    const container = this.restOpen ? el('rest') : this.menuOpen ? el('menu') : this.progressOpen ? el('progress') : null;
     if (!container) return;
     const items = Array.from(container.querySelectorAll<HTMLElement>('button, input[type=range], .switch')).filter((it) => it.offsetParent !== null);
     if (!items.length) return;
@@ -1029,7 +1061,7 @@ export class UI {
       if (this.clockT <= 0) el('clock').classList.add('hidden');
     }
     this.wardrobe.update();
-    if (this.menuOpen || this.restOpen) this.padNav();
+    if (this.menuOpen || this.restOpen || this.progressOpen) this.padNav();
     if (this.journalOpen) this.padJournal();
     if (this.menuOpen) {
       const hour = this.hooks.getHour();

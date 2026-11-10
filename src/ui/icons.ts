@@ -22,6 +22,7 @@ export const ICON = {
   scope: svg('<circle cx="12" cy="12" r="7.5"/><path d="M12 2.5v5M12 16.5v5M2.5 12h5M16.5 12h5"/>'),
   paw: svg('<ellipse cx="12" cy="15.5" rx="4.6" ry="3.8"/><circle cx="5.8" cy="10.8" r="1.8"/><circle cx="9.6" cy="6.8" r="1.9"/><circle cx="14.4" cy="6.8" r="1.9"/><circle cx="18.2" cy="10.8" r="1.8"/>'),
   gem: svg('<path d="M3 13.5l4.5-8h9l4.5 8-9 7z"/><path d="M3 13.5h18M9 13.5L12 5.5l3 8M9 13.5l3 7 3-7"/>'),
+  flag: svg('<path d="M5.5 21V4"/><path d="M5.5 4.5c3-1.6 5.5 1.6 8.5 0s4.5-.6 4.5-.6v8.6s-1.5-1-4.5.6-5.5-1.6-8.5 0"/>'),
   map: svg('<path d="M3.5 6.5l5.5-2.5 6 2.5 5.5-2.5v14l-5.5 2.5-6-2.5-5.5 2.5z"/><path d="M9 4v14M15 6.5v14"/>'),
   dawn: svg('<path d="M5 18a7 7 0 0 1 14 0"/><path d="M2.5 18h19M12 7.5v-3M5.7 11.7L3.7 9.7M18.3 11.7l2-2"/><path d="M8 21.5h8"/>'),
   sunset: svg('<path d="M5 17a7 7 0 0 1 14 0"/><path d="M2.5 17h19M12 6.5V3.5M9.5 2.5L12 5l2.5-2.5"/><path d="M6 20.5h12"/>'),

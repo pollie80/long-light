@@ -181,7 +181,7 @@ export class Game {
   }
 
   anyMenuOpen() {
-    return this.ui.menuOpen || this.ui.journalOpen || this.ui.restOpen || this.ui.wardrobe.open || this.ui.friendsOpen || this.ui.placesOpen;
+    return this.ui.menuOpen || this.ui.journalOpen || this.ui.restOpen || this.ui.wardrobe.open || this.ui.friendsOpen || this.ui.placesOpen || this.ui.progressOpen;
   }
 
   private openMenu() {
@@ -196,6 +196,7 @@ export class Game {
     this.ui.showRest(false);
     this.ui.showFriends(false);
     this.ui.showPlaces(false);
+    this.ui.showProgress(false);
     if (this.ui.wardrobe.open) {
       this.ui.setWardrobe(false);
     }
@@ -560,13 +561,18 @@ export class Game {
 
   // ---- Player -------------------------------------------------------------------------------------
 
-  walkable(x: number, z: number): boolean {
+  /**
+   * Whether a step to here is allowed. Coming from somewhere higher, a steep bank can be walked down (only a
+   * real cliff stops you); climbing, anything steeper than about 46 degrees is too much.
+   */
+  walkable(x: number, z: number, fromX?: number, fromZ?: number): boolean {
     if (onJetty(x, z)) return true;
     if (x > 114.7 && x < 121.4 && z > COTTAGE.z - 4.9 && z < COTTAGE.z + 4.9) return false;
     if (x > 270 || x < -70 || Math.abs(z) > 300) return false;
     const y = groundY(x, z);
     if (y < 0.08) return false;
-    if (slopeAt(x, z, 0.6) > 1.05) return false;
+    const downhill = fromX !== undefined && fromZ !== undefined && y < groundY(fromX, fromZ) - 0.002;
+    if (slopeAt(x, z, 0.6) > (downhill ? 2.2 : 1.05)) return false;
     return true;
   }
 
@@ -617,7 +623,7 @@ export class Game {
       const pace = 1.5 * Math.min(1, Math.hypot(mx, my)) * this.save.walkSpeed;
       const nx = this.px + (dx / l) * pace * dt;
       const nz = this.pz + (dz / l) * pace * dt;
-      if (this.walkable(nx, nz)) {
+      if (this.walkable(nx, nz, this.px, this.pz)) {
         this.px = nx;
         this.pz = nz;
       }
@@ -675,12 +681,12 @@ export class Game {
       const step = this.speed * dt;
       const nx = this.px + fx * step;
       const nz = this.pz + fz * step;
-      if (this.walkable(nx, nz)) {
+      if (this.walkable(nx, nz, this.px, this.pz)) {
         this.px = nx;
         this.pz = nz;
-      } else if (this.walkable(nx, this.pz)) {
+      } else if (this.walkable(nx, this.pz, this.px, this.pz)) {
         this.px = nx;
-      } else if (this.walkable(this.px, nz)) {
+      } else if (this.walkable(this.px, nz, this.px, this.pz)) {
         this.pz = nz;
       } else {
         this.speed *= 0.6;
